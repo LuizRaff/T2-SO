@@ -30,19 +30,55 @@ int subs_WS();  // Working set (k = 3 -> 5)
 
 int main() {
     // Path for access logs file //
-    char*  PATH_Processes[NUM_PROCESS] = {"AccessesLogs/P1_AccessesLog.txt", 
+    char*  processesPaths[NUM_PROCESS] = {"AccessesLogs/P1_AccessesLog.txt", 
                                           "AccessesLogs/P2_AccessesLog.txt", 
                                           "AccessesLogs/P3_AccessesLog.txt", 
                                           "AccessesLogs/P4_AccessesLog.txt"};
 
     // Generating px access logs //
-    if (accessLogsGen(PATH_Processes) == 1) { 
+    if (accessLogsGen(processesPaths) == 1) { 
+        perror("Error when loading access logs");
+        exit(1);
+    }
+
+    // Page replacement algorithm NRU //
+    if (subs_NRU(processesPaths) == 1) { 
         perror("Error when loading access logs");
         exit(1);
     }
 
     return 0;
 }
+
+int subs_NRU(char** paths){
+    int pageNum;
+    char accessType;
+    FILE* files[NUM_PROCESS];
+
+    // Opening files //
+    for (int i = 0; i < NUM_PROCESS; i++)
+    {
+        files[i] = fopen(paths[i], "r");
+    }
+
+    int i = 0;
+    while (fscanf(files[i % NUM_PROCESS], "%d %c", &pageNum, &accessType) == 2)
+    {
+        printf("P%d_AccessesLog loaded:\nPage: %d\nAccess: %c\n\n", (i % NUM_PROCESS) + 1, pageNum, accessType);
+        i++;
+    }
+    printf("Total Accesses: %d\n", i);
+    
+
+    // Closing files //
+    for (int i = 0; i < NUM_PROCESS; i++)
+    {
+        fclose(files[i]);
+    }
+    
+    
+    return 0;
+};
 
 int accessLogsGen(char** paths){
     FILE* file;
