@@ -418,13 +418,34 @@ int subs_2nCH(char **paths)
             return 1;
         }
     }
+
+    int totalAccesses = 0;
+    int pageFault = 0;
+    int pageNum;
+    char accessType;
+
+    while (fscanf(files[totalAccesses % NUM_PROCESS], "%d %c", &pageNum, &accessType) == 2)
+    {
+        // Verifica se o número da página é válido
+        if (pageNum < 0)
+        {
+            perror("Invalid page number");
+            for (int i = 0; i < NUM_PROCESS; i++)
+            {
+                fclose(files[i]);
+            }
+            return -1;
+        }
+        
+        totalAccesses++;
+    }
     
     // Closing files //
     for (int i = 0; i < NUM_PROCESS; i++)
     {
         fclose(files[i]);
     }
-    return 0;
+    return pageFault;
 }
 
 
@@ -448,13 +469,34 @@ int subs_WS(char **paths)
             return 1;
         }
     }
+
+    int totalAccesses = 0;
+    int pageFault = 0;
+    int pageNum;
+    char accessType;
+
+    while (fscanf(files[totalAccesses % NUM_PROCESS], "%d %c", &pageNum, &accessType) == 2)
+    {
+        // Verifica se o número da página é válido
+        if (pageNum < 0)
+        {
+            perror("Invalid page number");
+            for (int i = 0; i < NUM_PROCESS; i++)
+            {
+                fclose(files[i]);
+            }
+            return -1;
+        }
+
+        totalAccesses++;
+    }
     
     // Closing files //
     for (int i = 0; i < NUM_PROCESS; i++)
     {
         fclose(files[i]);
     }
-    return 0;
+    return pageFault;
 }
 
 /************************************************/
