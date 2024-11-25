@@ -11,10 +11,10 @@
 /* Defines */ /* Defines */
 #define NUM_PROCESS 4
 #define NUM_PAGES 32
-#define NUM_ACCESS 100
+#define NUM_ACCESS 120
 #define MEMORY_SIZE 16
 #define NRU_RESET_INTERVAL 15
-#define NUM_ROUNDS 1000
+#define NUM_ROUNDS 10000
 
 /* Macros */ /* Macros */
 #define RANDOM_PAGE() (rand() % (NUM_PAGES))
@@ -24,12 +24,12 @@
 int accessLogsGen(char **paths);
 
 /* Page Algorithms Declarations */
-int subs_NRU();  // Not recently used (NRU)
-int subs_2nCh(); // Second chance
-int subs_LRU();  // Aging (LRU)
-int subs_WS();   // Working set (k = 3 -> 5)
+int subs_NRU(char **paths);  // Not recently used (NRU)
+int subs_2nCh(char **paths); // Second chance
+int subs_LRU(char **paths);  // Aging (LRU)
+int subs_WS(char **paths);   // Working set (k = 3 -> 5)
 
-int main()
+int main(void)
 {
     int pageFaultsLRU[NUM_ROUNDS];
     int pageFaultsNRU[NUM_ROUNDS];
@@ -91,6 +91,10 @@ int main()
     return 0;
 }
 
+/************************************************/
+/************************************************/
+/************************************************/
+/*              LRU - ALGORITHM                 */
 typedef struct
 {
     int dados[MEMORY_SIZE];
@@ -231,6 +235,10 @@ int subs_LRU(char **paths)
     return pageFault;
 }
 
+/************************************************/
+/************************************************/
+/************************************************/
+/*              NRU - ALGORITHM                 */
 int NRU_whichPageToRemove(int *memory, int *pageModified, int *pageReferenced, int pageNum)
 {
     /*
@@ -389,6 +397,70 @@ int subs_NRU(char **paths)
 
     return pageFault;
 }
+
+/************************************************/
+/************************************************/
+/************************************************/
+/*              2nCH - ALGORITHM                */
+int subs_2nCH(char **paths)
+{
+    // Opening files //
+    FILE *files[NUM_PROCESS];
+    for (int i = 0; i < NUM_PROCESS; i++)
+    {
+        files[i] = fopen(paths[i], "r");
+        if (files[i] == NULL)
+        {
+            for (int j = 0; j < i; j++)
+            {
+                fclose(files[j]);
+            }
+            return 1;
+        }
+    }
+    
+    // Closing files //
+    for (int i = 0; i < NUM_PROCESS; i++)
+    {
+        fclose(files[i]);
+    }
+    return 0;
+}
+
+
+/************************************************/
+/************************************************/
+/************************************************/
+/*              WS - ALGORITHM                  */
+int subs_WS(char **paths)
+{
+    // Opening files //
+    FILE *files[NUM_PROCESS];
+    for (int i = 0; i < NUM_PROCESS; i++)
+    {
+        files[i] = fopen(paths[i], "r");
+        if (files[i] == NULL)
+        {
+            for (int j = 0; j < i; j++)
+            {
+                fclose(files[j]);
+            }
+            return 1;
+        }
+    }
+    
+    // Closing files //
+    for (int i = 0; i < NUM_PROCESS; i++)
+    {
+        fclose(files[i]);
+    }
+    return 0;
+}
+
+/************************************************/
+/************************************************/
+/************************************************/
+
 
 int accessLogsGen(char **paths)
 {
