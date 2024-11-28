@@ -15,7 +15,7 @@
 #define NUM_ACCESS 120
 #define MEMORY_SIZE 16
 #define NRU_RESET_INTERVAL 15
-#define NUM_ROUNDS 10000
+#define NUM_ROUNDS 2
 
 /* Macros */
 #define RANDOM_PAGE() (rand() % (NUM_PAGES))
@@ -32,7 +32,7 @@ int subs_WS(char **paths, int set); // Working Set (k)
 
 /* Main Function */
 int main(int agrv, char **argc)
-{   
+{
     int pageFaultsLRU[NUM_ROUNDS];
     int pageFaultsNRU[NUM_ROUNDS];
     int pageFaults2nCH[NUM_ROUNDS];
@@ -44,8 +44,16 @@ int main(int agrv, char **argc)
                                          "AccessesLogs/P3_AccessesLog.txt",
                                          "AccessesLogs/P4_AccessesLog.txt"};
 
+    printf("Algoritmo Escolhido: %s\n", argc[1]);
+    if (argc[2] != NULL)
+    {
+        printf("Parâmetro do Working Set: %s\n", argc[2]);
+    }
+    printf("Numero de rodadas: %d\n\n", NUM_ROUNDS);
+
     for (int i = 0; i < NUM_ROUNDS; i++)
     {
+        printf("Rodada %d\n\n", i + 1);
         // Generating process access logs
         if (accessLogsGen(processesPaths) == 1)
         {
@@ -383,7 +391,10 @@ int subs_NRU(char **paths)
             if (memory[i] == pageNum)
             {
                 // Page hit
-                pageReferenced[i] = 1;
+                if (accessType == 'R')
+                {
+                    pageReferenced[i] = 1;
+                }
                 if (accessType == 'W')
                 {
                     pageModified[i] = 1;
@@ -397,6 +408,7 @@ int subs_NRU(char **paths)
         {
             // Page fault
             pageFault++;
+            printf("Page fault: %d\n", pageNum);
 
             // Select the page to be removed
             pageToRemove = NRU_whichPageToRemove(memory, pageModified, pageReferenced, pageNum);
@@ -410,9 +422,17 @@ int subs_NRU(char **paths)
                 return -1;
             }
 
+            printf("Page to remove: %d\n", memory[pageToRemove]);
+            if (memory[pageToRemove] != -1 && pageModified[pageToRemove] == 1)
+            {
+                printf("Dirty page replaced and written back to swap area.\n\n");
+            }else{
+                printf("Clean page replaced.\n\n");
+            }
+
             // Replace the page in memory and update bits
             memory[pageToRemove] = pageNum;
-            pageReferenced[pageToRemove] = 1;
+            pageReferenced[pageToRemove] = (accessType == 'R') ? 1 : 0;
             pageModified[pageToRemove] = (accessType == 'W') ? 1 : 0;
         }
 
