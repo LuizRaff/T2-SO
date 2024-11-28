@@ -44,6 +44,8 @@ int main(int argv, char **argc)
                                          "AccessesLogs/P3_AccessesLog.txt",
                                          "AccessesLogs/P4_AccessesLog.txt"};
 
+    char *arq_teste = "Test_AccessesLog.txt";
+
     // Running page replacement algorithms
     printf("Gerando novos logs de accesso...\n");
     if (strcmp(argc[1], "REFRESH") == 0)
