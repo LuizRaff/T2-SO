@@ -163,6 +163,7 @@ typedef struct
 {
     int dados[MEMORY_SIZE];
     int tamanho;
+    int modificado[MEMORY_SIZE];
 } LRU_Fila;
 
 // Initializes the queue
@@ -196,6 +197,7 @@ void removerValor(LRU_Fila *fila, int valor)
             for (j = i; j < fila->tamanho - 1; j++)
             {
                 fila->dados[j] = fila->dados[j + 1];
+                fila->modificado[j] = fila->modificado[j + 1];
             }
             fila->tamanho--;
             return;
@@ -204,7 +206,7 @@ void removerValor(LRU_Fila *fila, int valor)
 }
 
 // Adds a value to the queue
-void adicionar(LRU_Fila *fila, int valor, int *pageFault)
+void adicionar(LRU_Fila *fila, int valor, int *pageFault, int pageModified)
 {
     if (contem(fila, valor))
     {
@@ -213,6 +215,16 @@ void adicionar(LRU_Fila *fila, int valor, int *pageFault)
     }
     else
     {
+        printf("Page fault: %d\n", valor);
+        printf("Page to remove: %d\n", fila->dados[0]);
+        if (fila->dados[0] != -1 && fila->modificado[0] == 1)
+        {
+            printf("Dirty page replaced and written back to swap area.\n\n");
+        }
+        else
+        {
+            printf("Clean page replaced.\n\n");
+        }
         *pageFault += 1;
     }
 
@@ -220,6 +232,7 @@ void adicionar(LRU_Fila *fila, int valor, int *pageFault)
     if (fila->tamanho < MEMORY_SIZE)
     {
         fila->dados[fila->tamanho++] = valor;
+        fila->modificado[fila->tamanho++] = pageModified;
     }
     else
     {
@@ -227,9 +240,21 @@ void adicionar(LRU_Fila *fila, int valor, int *pageFault)
         for (int i = 0; i < MEMORY_SIZE - 1; i++)
         {
             fila->dados[i] = fila->dados[i + 1];
+            fila->modificado[i] = fila->modificado[i + 1];
         }
         fila->dados[MEMORY_SIZE - 1] = valor;
+        fila->modificado[MEMORY_SIZE - 1] = pageModified;
     }
+}
+
+void imprimirFila(LRU_Fila *fila)
+{
+    printf("Fila: \n");
+    for (int i = 0; i < fila->tamanho; i++)
+    {
+        printf("%d %d\n", fila->dados[i], fila->modificado[i]);
+    }
+    printf("\n");
 }
 
 int subs_LRU(char **paths)
@@ -271,7 +296,7 @@ int subs_LRU(char **paths)
         }
 
         // Add the page to the queue
-        adicionar(&lru_Fila, pageNum, &pageFault);
+        adicionar(&lru_Fila, pageNum, &pageFault, (accessType == 'W') ? 1 : 0);
         totalAccesses++;
     }
 
@@ -426,7 +451,9 @@ int subs_NRU(char **paths)
             if (memory[pageToRemove] != -1 && pageModified[pageToRemove] == 1)
             {
                 printf("Dirty page replaced and written back to swap area.\n\n");
-            }else{
+            }
+            else
+            {
                 printf("Clean page replaced.\n\n");
             }
 
