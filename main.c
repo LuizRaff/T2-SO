@@ -25,10 +25,10 @@
 int accessLogsGen(char **paths);
 
 /* Page Algorithms Declarations */
-int subs_NRU(char **paths, int print);         // Not Recently Used (NRU)
-int subs_2nCh(char **paths);        // Second Chance
-int subs_LRU(char **paths, int print);         // Aging (LRU)
-int subs_WS(char **paths, int set); // Working Set (k)
+int subs_NRU(char **paths, int print); // Not Recently Used (NRU)
+int subs_2nCh(char **paths);           // Second Chance
+int subs_LRU(char **paths, int print); // Aging (LRU)
+int subs_WS(char **paths, int set);    // Working Set (k)
 
 /* Main Function */
 int main(int argv, char **argc)
@@ -44,70 +44,77 @@ int main(int argv, char **argc)
                                          "AccessesLogs/P3_AccessesLog.txt",
                                          "AccessesLogs/P4_AccessesLog.txt"};
 
-    printf("Algoritmo Escolhido: %s\n", argc[1]);
-    if (argv > 2)
+    // Running page replacement algorithms
+    printf("Gerando novos logs de accesso...\n");
+    if (strcmp(argc[1], "REFRESH") == 0)
     {
-        printf("Parâmetro do Working Set: %s\n", argc[2]);
-    }
-    printf("Numero de rodadas: %d\n\n", NUM_ROUNDS);
-
-    for (int i = 0; i < NUM_ROUNDS; i++)
-    {
-        printf("Rodada %d\n\n", i + 1);
         // Generating process access logs
         if (accessLogsGen(processesPaths) == 1)
         {
             perror("Error when loading access logs");
             exit(1);
         }
+    }
+    else
+    {
 
-        // Running page replacement algorithms
+        printf("Algoritmo Escolhido: %s\n", argc[1]);
+        if (argv > 2)
+        {
+            printf("Parâmetro do Working Set: %s\n", argc[2]);
+        }
+        printf("Numero de rodadas: %d\n\n", NUM_ROUNDS);
 
-        if (strcmp(argc[1], "LRU") == 0)
+        for (int i = 0; i < NUM_ROUNDS; i++)
         {
-            pageFaultsLRU[i] = subs_LRU(processesPaths, 1);
-            if (pageFaultsLRU[i] == -1)
+            printf("Rodada %d\n\n", i + 1);
+
+            if (strcmp(argc[1], "LRU") == 0)
             {
-                perror("Error when running LRU algorithm");
+                pageFaultsLRU[i] = subs_LRU(processesPaths, 1);
+                if (pageFaultsLRU[i] == -1)
+                {
+                    perror("Error when running LRU algorithm");
+                    exit(1);
+                }
+            }
+            else if (strcmp(argc[1], "NRU") == 0)
+            {
+                pageFaultsNRU[i] = subs_NRU(processesPaths, 1);
+                if (pageFaultsNRU[i] == -1)
+                {
+                    perror("Error when running NRU algorithm");
+                    exit(1);
+                }
+            }
+            else if (strcmp(argc[1], "2nCH") == 0)
+            {
+                pageFaults2nCH[i] = subs_2nCh(processesPaths);
+                if (pageFaults2nCH[i] == -1)
+                {
+                    perror("Error when running Second Chance algorithm");
+                    exit(1);
+                }
+            }
+            else if (strcmp(argc[1], "WS") == 0)
+            {
+                if (strcmp(argc[2], "") == 0)
+                {
+                    perror("Missing parameter k for Working Set algorithm");
+                    exit(1);
+                }
+                pageFaultsWS[i] = subs_WS(processesPaths, atoi(argc[2]));
+                if (pageFaultsWS[i] == -1)
+                {
+                    perror("Error when running Working Set algorithm");
+                    exit(1);
+                }
+            }
+            else
+            {
+                perror("Invalid algorithm");
                 exit(1);
             }
-        }
-        else if (strcmp(argc[1], "NRU") == 0)
-        {
-            pageFaultsNRU[i] = subs_NRU(processesPaths, 1);
-            if (pageFaultsNRU[i] == -1)
-            {
-                perror("Error when running NRU algorithm");
-                exit(1);
-            }
-        }
-        else if (strcmp(argc[1], "2nCH") == 0)
-        {
-            pageFaults2nCH[i] = subs_2nCh(processesPaths);
-            if (pageFaults2nCH[i] == -1)
-            {
-                perror("Error when running Second Chance algorithm");
-                exit(1);
-            }
-        }
-        else if (strcmp(argc[1], "WS") == 0)
-        {
-            if (strcmp(argc[2], "") == 0)
-            {
-                perror("Missing parameter k for Working Set algorithm");
-                exit(1);
-            }
-            pageFaultsWS[i] = subs_WS(processesPaths, atoi(argc[2]));
-            if (pageFaultsWS[i] == -1)
-            {
-                perror("Error when running Working Set algorithm");
-                exit(1);
-            }
-        }
-        else
-        {
-            perror("Invalid algorithm");
-            exit(1);
         }
     }
 
@@ -241,8 +248,8 @@ void adicionarLRU(LRU_Fila *fila, int valor, int *pageFault, int pageModified, i
         // If the queue is full, remove the least recently used page
         if (fila->tamanho == MEMORY_SIZE)
         {
-            printf("Page fault: %d\n", valor+1);
-            printf("Page to remove: %d\n", fila->dados[0]+1);
+            printf("Page fault: %d\n", valor + 1);
+            printf("Page to remove: %d\n", fila->dados[0] + 1);
             if (fila->modificado[0] == 1)
             {
                 printf("Dirty page replaced and written back to swap area.\n");
@@ -279,11 +286,11 @@ void imprimiTabelaProcessosLRU(LRU_Fila *fila)
         int index = indexOfLRU(fila, i);
         if (index != -1)
         {
-            printf("|  %2d  |   %2d  |  %d  |  %d  |\n", i+1, index+1, fila->referencia[index], fila->modificado[index]);
+            printf("|  %2d  |   %2d  |  %d  |  %d  |\n", i + 1, index + 1, fila->referencia[index], fila->modificado[index]);
         }
         else
         {
-            printf("|  %2d  | ----- | --- | --- |\n", i+1);
+            printf("|  %2d  | ----- | --- | --- |\n", i + 1);
         }
     }
     printf("----------------------------\n");
@@ -316,7 +323,7 @@ int subs_LRU(char **paths, int print)
     int pageFault = 0;
     while (fscanf(files[totalAccesses % NUM_PROCESS], "%d %c", &pageNum, &accessType) == 2)
     {
-        printf("Accesso: %d %c\n", pageNum+1, accessType);
+        printf("Accesso: %d %c\n", pageNum + 1, accessType);
 
         // Check if the page number is valid
         if (pageNum < 0)
@@ -337,11 +344,10 @@ int subs_LRU(char **paths, int print)
 
         totalAccesses++;
 
-        if(print)
+        if (print)
         {
             imprimiTabelaProcessosLRU(&lru_Fila);
         }
-
     }
 
     // Closing files
@@ -404,7 +410,7 @@ int NRU_whichPageToRemove(int *memory, int *pageModified, int *pageReferenced, i
     return -1;
 }
 // Returns the index of the value in the queue, or -1 if not found
-int indexOfNRU(int* memory, int valor)
+int indexOfNRU(int *memory, int valor)
 {
     for (int i = 0; i < MEMORY_SIZE; i++)
     {
@@ -415,7 +421,7 @@ int indexOfNRU(int* memory, int valor)
     }
     return -1;
 }
-void imprimiTabelaProcessosNRU(int* memory, int* pageReferenced, int* pageModified)
+void imprimiTabelaProcessosNRU(int *memory, int *pageReferenced, int *pageModified)
 {
     printf("Tabela de Processos: \n");
     printf("----------------------------\n");
@@ -425,11 +431,11 @@ void imprimiTabelaProcessosNRU(int* memory, int* pageReferenced, int* pageModifi
         int index = indexOfNRU(memory, i);
         if (index != -1)
         {
-            printf("|  %2d  |   %2d  |  %d  |  %d  |\n", i+1, index+1, pageReferenced[index], pageModified[index]);
+            printf("|  %2d  |   %2d  |  %d  |  %d  |\n", i + 1, index + 1, pageReferenced[index], pageModified[index]);
         }
         else
         {
-            printf("|  %2d  | ----- | --- | --- |\n", i+1);
+            printf("|  %2d  | ----- | --- | --- |\n", i + 1);
         }
     }
     printf("----------------------------\n");
@@ -473,8 +479,8 @@ int subs_NRU(char **paths, int print)
 
     while (fscanf(files[totalAccesses % NUM_PROCESS], "%d %c", &pageNum, &accessType) == 2)
     {
-        printf("Accesso: %d %c\n", pageNum+1, accessType);
-     
+        printf("Accesso: %d %c\n", pageNum + 1, accessType);
+
         // Check if the page number is valid
         if (pageNum < 0)
         {
@@ -540,7 +546,8 @@ int subs_NRU(char **paths, int print)
             pageModified[pageToRemove] = (accessType == 'W') ? 1 : 0;
         }
 
-        if(print){
+        if (print)
+        {
             imprimiTabelaProcessosNRU(memory, pageReferenced, pageModified);
         }
 
@@ -694,9 +701,9 @@ int subs_2nCh(char **paths)
         printf("| Page | Frame | Ref | Mod |\n");
         for (int i = 0; i < MEMORY_SIZE; i++)
         {
-            printf("|  %2d  |   %2d  |  %d  |  %d  |\n", 
-                   i + 1, memory[i] == -1 ? -1 : memory[i] + 1, 
-                   reference_bits_of_each_frame[i], 
+            printf("|  %2d  |   %2d  |  %d  |  %d  |\n",
+                   i + 1, memory[i] == -1 ? -1 : memory[i] + 1,
+                   reference_bits_of_each_frame[i],
                    modified_bits[i]);
         }
         printf("----------------------------\n");
@@ -727,7 +734,7 @@ int subs_WS(char **paths, int set)
 
     // Memory Block Declaration
     int memory[MEMORY_SIZE];
-    int modified_bits[MEMORY_SIZE];   // Tracks whether a page is modified
+    int modified_bits[MEMORY_SIZE];  // Tracks whether a page is modified
     int reference_bits[MEMORY_SIZE]; // Tracks whether a page is recently accessed
     int working_set_queue[MEMORY_SIZE];
     int working_set_size = 0;
