@@ -15,7 +15,7 @@
 #define NUM_ACCESS 120
 #define MEMORY_SIZE 16
 #define NRU_RESET_INTERVAL 15
-#define NUM_ROUNDS 2
+#define NUM_ROUNDS 1000
 
 /* Macros */
 #define RANDOM_PAGE() (rand() % (NUM_PAGES))
@@ -31,7 +31,7 @@ int subs_LRU(char **paths);         // Aging (LRU)
 int subs_WS(char **paths, int set); // Working Set (k)
 
 /* Main Function */
-int main(int agrv, char **argc)
+int main(int argv, char **argc)
 {
     int pageFaultsLRU[NUM_ROUNDS];
     int pageFaultsNRU[NUM_ROUNDS];
@@ -45,7 +45,7 @@ int main(int agrv, char **argc)
                                          "AccessesLogs/P4_AccessesLog.txt"};
 
     printf("Algoritmo Escolhido: %s\n", argc[1]);
-    if (argc[2] != NULL)
+    if (argv > 2)
     {
         printf("Parâmetro do Working Set: %s\n", argc[2]);
     }
@@ -147,7 +147,7 @@ int main(int agrv, char **argc)
         {
             total += pageFaultsWS[i];
         }
-        printf("Average Page Faults Working Set (k=%d): %d\n", atoi(argc[1]), total / NUM_ROUNDS);
+        printf("Average Page Faults Working Set (k=%d): %d\n", atoi(argc[2]), total / NUM_ROUNDS);
     }
     return 0;
 }
@@ -170,6 +170,11 @@ typedef struct
 void inicializarFila(LRU_Fila *fila)
 {
     fila->tamanho = 0;
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        fila->dados[i] = -1;
+        fila->modificado[i] = 0;
+    }
 }
 
 // Checks if a value is in the queue
@@ -183,6 +188,19 @@ int contem(LRU_Fila *fila, int valor)
         }
     }
     return 0;
+}
+
+// Returns the index of the value in the queue, or -1 if not found
+int indexOf(LRU_Fila *fila, int valor)
+{
+    for (int i = 0; i < fila->tamanho; i++)
+    {
+        if (fila->dados[i] == valor)
+        {
+            return i;
+        }
+    }
+    return -1;
 }
 
 // Removes a specific value from the queue
@@ -215,36 +233,35 @@ void adicionar(LRU_Fila *fila, int valor, int *pageFault, int pageModified)
     }
     else
     {
-        printf("Page fault: %d\n", valor);
-        printf("Page to remove: %d\n", fila->dados[0]);
-        if (fila->dados[0] != -1 && fila->modificado[0] == 1)
+        // Page fault occurs
+        (*pageFault)++;
+        // If the queue is full, remove the least recently used page
+        if (fila->tamanho == MEMORY_SIZE)
         {
-            printf("Dirty page replaced and written back to swap area.\n\n");
+            printf("Page fault: %d\n", valor);
+            printf("Page to remove: %d\n", fila->dados[0]);
+            if (fila->modificado[0] == 1)
+            {
+                printf("Dirty page replaced and written back to swap area.\n\n");
+            }
+            else
+            {
+                printf("Clean page replaced.\n\n");
+            }
+            // Shift all elements to the left to remove the oldest page
+            for (int i = 0; i < MEMORY_SIZE - 1; i++)
+            {
+                fila->dados[i] = fila->dados[i + 1];
+                fila->modificado[i] = fila->modificado[i + 1];
+            }
+            fila->tamanho--;
         }
-        else
-        {
-            printf("Clean page replaced.\n\n");
-        }
-        *pageFault += 1;
     }
 
     // Add the value to the end of the queue
-    if (fila->tamanho < MEMORY_SIZE)
-    {
-        fila->dados[fila->tamanho++] = valor;
-        fila->modificado[fila->tamanho++] = pageModified;
-    }
-    else
-    {
-        // Remove the first element to make space
-        for (int i = 0; i < MEMORY_SIZE - 1; i++)
-        {
-            fila->dados[i] = fila->dados[i + 1];
-            fila->modificado[i] = fila->modificado[i + 1];
-        }
-        fila->dados[MEMORY_SIZE - 1] = valor;
-        fila->modificado[MEMORY_SIZE - 1] = pageModified;
-    }
+    fila->dados[fila->tamanho] = valor;
+    fila->modificado[fila->tamanho] = pageModified;
+    fila->tamanho++;
 }
 
 void imprimirFila(LRU_Fila *fila)
@@ -295,8 +312,11 @@ int subs_LRU(char **paths)
             return -1;
         }
 
+        int pageModified = (accessType == 'W') ? 1 : 0;
+
         // Add the page to the queue
-        adicionar(&lru_Fila, pageNum, &pageFault, (accessType == 'W') ? 1 : 0);
+        adicionar(&lru_Fila, pageNum, &pageFault, pageModified);
+
         totalAccesses++;
     }
 
@@ -463,15 +483,15 @@ int subs_NRU(char **paths)
             pageModified[pageToRemove] = (accessType == 'W') ? 1 : 0;
         }
 
-        accessesSinceReset++;
-        if (accessesSinceReset >= NRU_RESET_INTERVAL)
-        {
-            for (int i = 0; i < MEMORY_SIZE; i++)
-            {
-                pageReferenced[i] = 0;
-            }
-            accessesSinceReset = 0;
-        }
+        // accessesSinceReset++;
+        // if (accessesSinceReset >= NRU_RESET_INTERVAL)
+        // {
+        //     for (int i = 0; i < MEMORY_SIZE; i++)
+        //     {
+        //         pageReferenced[i] = 0;
+        //     }
+        //     accessesSinceReset = 0;
+        // }
 
         totalAccesses++;
     }
