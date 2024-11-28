@@ -422,14 +422,14 @@ int subs_2nCh(char **paths)
 {
     // Memory Block Declaration
     int memory[MEMORY_SIZE];          // Array to simulate physical memory frames
-    int reference_bits[MEMORY_SIZE];  // Array to keep track of reference bits for each frame
-    int hand = 0;                     // Pointer for the circular queue (the "hand" of the clock)
+    int reference_bits_of_each_frame[MEMORY_SIZE];  // Array to keep track of reference bits for each frame
+    int circular_queue_pointer = 0;                     // Pointer for the circular queue (the "circular_queue_pointer" of the clock)
 
     // Initialize memory and reference bits
     for (int i = 0; i < MEMORY_SIZE; i++)
     {
         memory[i] = -1;         // Initialize all memory frames to -1, indicating they are empty
-        reference_bits[i] = 0;  // Initialize all reference bits to 0
+        reference_bits_of_each_frame[i] = 0;  // Initialize all reference bits to 0
     }
 
     // Opening access log files for each process
@@ -477,7 +477,7 @@ int subs_2nCh(char **paths)
             if (memory[i] == pageNum)
             {
                 // Page is found in memory
-                reference_bits[i] = 1;  // Set the reference bit to 1 (page has been recently used)
+                reference_bits_of_each_frame[i] = 1;  // Set the reference bit to 1 (page has been recently used)
                 found = 1;              // Set the found flag
                 break;                  // Exit the loop since the page is found
             }
@@ -503,27 +503,27 @@ int subs_2nCh(char **paths)
             {
                 // There is a free frame available
                 memory[free_frame] = pageNum;    // Load the new page into the free frame
-                reference_bits[free_frame] = 1;  // Set the reference bit
+                reference_bits_of_each_frame[free_frame] = 1;  // Set the reference bit
             }
             else
             {
                 // No free frames available; apply the Second Chance algorithm
                 while (1)
                 {
-                    // Check the reference bit of the page at the current 'hand' position
-                    if (reference_bits[hand] == 0)
+                    // Check the reference bit of the page at the current 'circular_queue_pointer' position
+                    if (reference_bits_of_each_frame[circular_queue_pointer] == 0)
                     {
                         // Reference bit is 0; replace this page
-                        memory[hand] = pageNum;        // Replace the page in memory with the new page
-                        reference_bits[hand] = 1;      // Set the reference bit for the new page
-                        hand = (hand + 1) % MEMORY_SIZE;  // Move the hand to the next position
+                        memory[circular_queue_pointer] = pageNum;        // Replace the page in memory with the new page
+                        reference_bits_of_each_frame[circular_queue_pointer] = 1;      // Set the reference bit for the new page
+                        circular_queue_pointer = (circular_queue_pointer + 1) % MEMORY_SIZE;  // Move the circular_queue_pointer to the next position
                         break;  // Exit the loop after replacement
                     }
                     else
                     {
                         // Reference bit is 1; give a second chance
-                        reference_bits[hand] = 0;      // Reset the reference bit to 0
-                        hand = (hand + 1) % MEMORY_SIZE;  // Move the hand to the next position
+                        reference_bits_of_each_frame[circular_queue_pointer] = 0;      // Reset the reference bit to 0
+                        circular_queue_pointer = (circular_queue_pointer + 1) % MEMORY_SIZE;  // Move the circular_queue_pointer to the next position
                         // Continue the loop to check the next page
                     }
                 }
@@ -563,7 +563,7 @@ int subs_WS(char **paths)
 
     // Working set queue to keep track of pages in the working set
     int working_set_queue[MEMORY_SIZE];
-    int working_set_size = 0; // Current number of pages in the working set
+    int number_of_pages_WS = 0; // Current number of pages in the working set
 
     // Initialize working set queue
     for (int i = 0; i < MEMORY_SIZE; i++)
@@ -620,7 +620,7 @@ int subs_WS(char **paths)
                 // Move the page to the end of the working set queue (most recently used)
                 // First, find the index of the page in the working set queue
                 int index = -1;
-                for (int j = 0; j < working_set_size; j++)
+                for (int j = 0; j < number_of_pages_WS; j++)
                 {
                     if (working_set_queue[j] == pageNum)
                     {
@@ -631,12 +631,12 @@ int subs_WS(char **paths)
                 if (index != -1)
                 {
                     // Shift all pages after the found index to the left
-                    for (int j = index; j < working_set_size - 1; j++)
+                    for (int j = index; j < number_of_pages_WS - 1; j++)
                     {
                         working_set_queue[j] = working_set_queue[j + 1];
                     }
                     // Place the accessed page at the end of the working set queue
-                    working_set_queue[working_set_size - 1] = pageNum;
+                    working_set_queue[number_of_pages_WS - 1] = pageNum;
                 }
                 break; // Exit the loop since the page is found
             }
@@ -648,7 +648,7 @@ int subs_WS(char **paths)
             pageFault++;
 
             // Check if there is space in the working set and memory
-            if (working_set_size < k && working_set_size < MEMORY_SIZE)
+            if (number_of_pages_WS < k && number_of_pages_WS < MEMORY_SIZE)
             {
                 // There is space to load the new page
 
@@ -668,7 +668,7 @@ int subs_WS(char **paths)
                     memory[free_frame] = pageNum;
 
                     // Add the new page to the working set queue
-                    working_set_queue[working_set_size++] = pageNum; // Increment the working set size
+                    working_set_queue[number_of_pages_WS++] = pageNum; // Increment the working set size
                 }
                 else
                 {
@@ -682,10 +682,9 @@ int subs_WS(char **paths)
                     return -1;
                 }
             }
-            else
+            else   // The working set is full; need to replace a page
             {
-                // The working set is full; need to replace a page
-
+        
                 // Remove the oldest page from the working set queue
                 int page_to_remove = working_set_queue[0]; // Oldest page
 
@@ -701,13 +700,13 @@ int subs_WS(char **paths)
                 }
 
                 // Shift the working set queue to the left to remove the oldest page
-                for (int i = 0; i < working_set_size - 1; i++)
+                for (int i = 0; i < number_of_pages_WS - 1; i++)
                 {
                     working_set_queue[i] = working_set_queue[i + 1];
                 }
 
                 // Place the new page at the end of the working set queue
-                working_set_queue[working_set_size - 1] = pageNum;
+                working_set_queue[number_of_pages_WS - 1] = pageNum;
             }
         }
 
