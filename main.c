@@ -7,6 +7,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 
 /* Defines */
 #define NUM_PROCESS 4
@@ -24,14 +25,14 @@
 int accessLogsGen(char **paths);
 
 /* Page Algorithms Declarations */
-int subs_NRU(char **paths);  // Not Recently Used (NRU)
-int subs_2nCh(char **paths); // Second Chance
-int subs_LRU(char **paths);  // Aging (LRU)
-int subs_WS(char **paths, int set);   // Working Set (k)
+int subs_NRU(char **paths);         // Not Recently Used (NRU)
+int subs_2nCh(char **paths);        // Second Chance
+int subs_LRU(char **paths);         // Aging (LRU)
+int subs_WS(char **paths, int set); // Working Set (k)
 
 /* Main Function */
 int main(int agrv, char **argc)
-{
+{   
     int pageFaultsLRU[NUM_ROUNDS];
     int pageFaultsNRU[NUM_ROUNDS];
     int pageFaults2nCH[NUM_ROUNDS];
@@ -53,66 +54,93 @@ int main(int agrv, char **argc)
         }
 
         // Running page replacement algorithms
-        pageFaultsLRU[i] = subs_LRU(processesPaths);
-        if (pageFaultsLRU[i] == -1)
-        {
-            perror("Error when running LRU algorithm");
-            exit(1);
-        }
 
-        pageFaultsNRU[i] = subs_NRU(processesPaths);
-        if (pageFaultsNRU[i] == -1)
+        if (strcmp(argc[1], "LRU") == 0)
         {
-            perror("Error when running NRU algorithm");
-            exit(1);
+            pageFaultsLRU[i] = subs_LRU(processesPaths);
+            if (pageFaultsLRU[i] == -1)
+            {
+                perror("Error when running LRU algorithm");
+                exit(1);
+            }
         }
-
-        pageFaults2nCH[i] = subs_2nCh(processesPaths);
-        if (pageFaults2nCH[i] == -1)
+        else if (strcmp(argc[1], "NRU") == 0)
         {
-            perror("Error when running Second Chance algorithm");
-            exit(1);
+            pageFaultsNRU[i] = subs_NRU(processesPaths);
+            if (pageFaultsNRU[i] == -1)
+            {
+                perror("Error when running NRU algorithm");
+                exit(1);
+            }
         }
-
-        pageFaultsWS[i] = subs_WS(processesPaths, atoi(argc[1]));
-        if (pageFaultsWS[i] == -1)
+        else if (strcmp(argc[1], "2nCH") == 0)
         {
-            perror("Error when running Working Set algorithm");
+            pageFaults2nCH[i] = subs_2nCh(processesPaths);
+            if (pageFaults2nCH[i] == -1)
+            {
+                perror("Error when running Second Chance algorithm");
+                exit(1);
+            }
+        }
+        else if (strcmp(argc[1], "WS") == 0)
+        {
+            if (strcmp(argc[2], "") == 0)
+            {
+                perror("Missing parameter k for Working Set algorithm");
+                exit(1);
+            }
+            pageFaultsWS[i] = subs_WS(processesPaths, atoi(argc[2]));
+            if (pageFaultsWS[i] == -1)
+            {
+                perror("Error when running Working Set algorithm");
+                exit(1);
+            }
+        }
+        else
+        {
+            perror("Invalid algorithm");
             exit(1);
         }
     }
 
     // Calculating and printing average page faults
     int total;
-
-    total = 0;
-    for (int i = 0; i < NUM_ROUNDS; i++)
+    if (strcmp(argc[1], "LRU") == 0)
     {
-        total += pageFaultsLRU[i];
+        total = 0;
+        for (int i = 0; i < NUM_ROUNDS; i++)
+        {
+            total += pageFaultsLRU[i];
+        }
+        printf("Average Page Faults LRU: %d\n", total / NUM_ROUNDS);
     }
-    printf("Average Page Faults LRU: %d\n", total / NUM_ROUNDS);
-
-    total = 0;
-    for (int i = 0; i < NUM_ROUNDS; i++)
+    else if (strcmp(argc[1], "NRU") == 0)
     {
-        total += pageFaultsNRU[i];
+        total = 0;
+        for (int i = 0; i < NUM_ROUNDS; i++)
+        {
+            total += pageFaultsNRU[i];
+        }
+        printf("Average Page Faults NRU: %d\n", total / NUM_ROUNDS);
     }
-    printf("Average Page Faults NRU: %d\n", total / NUM_ROUNDS);
-
-    total = 0;
-    for (int i = 0; i < NUM_ROUNDS; i++)
+    else if (strcmp(argc[1], "2nCH") == 0)
     {
-        total += pageFaults2nCH[i];
+        total = 0;
+        for (int i = 0; i < NUM_ROUNDS; i++)
+        {
+            total += pageFaults2nCH[i];
+        }
+        printf("Average Page Faults Second Chance: %d\n", total / NUM_ROUNDS);
     }
-    printf("Average Page Faults Second Chance: %d\n", total / NUM_ROUNDS);
-
-    total = 0;
-    for (int i = 0; i < NUM_ROUNDS; i++)
+    else if (strcmp(argc[1], "WS") == 0)
     {
-        total += pageFaultsWS[i];
+        total = 0;
+        for (int i = 0; i < NUM_ROUNDS; i++)
+        {
+            total += pageFaultsWS[i];
+        }
+        printf("Average Page Faults Working Set (k=%d): %d\n", atoi(argc[1]), total / NUM_ROUNDS);
     }
-    printf("Average Page Faults Working Set (k=%d): %d\n", atoi(argc[1]), total / NUM_ROUNDS);
-
     return 0;
 }
 
@@ -420,22 +448,22 @@ int subs_NRU(char **paths)
 int subs_2nCh(char **paths)
 {
     // Memory Block Declaration
-    int memory[MEMORY_SIZE];          // Array to simulate physical memory frames
-    int reference_bits_of_each_frame[MEMORY_SIZE];  // Array to keep track of reference bits for each frame
-    int circular_queue_pointer = 0;                     // Pointer for the circular queue (the "circular_queue_pointer" of the clock)
+    int memory[MEMORY_SIZE];                       // Array to simulate physical memory frames
+    int reference_bits_of_each_frame[MEMORY_SIZE]; // Array to keep track of reference bits for each frame
+    int circular_queue_pointer = 0;                // Pointer for the circular queue (the "circular_queue_pointer" of the clock)
 
     // Initialize memory and reference bits
     for (int i = 0; i < MEMORY_SIZE; i++)
     {
-        memory[i] = -1;         // Initialize all memory frames to -1, indicating they are empty
-        reference_bits_of_each_frame[i] = 0;  // Initialize all reference bits to 0
+        memory[i] = -1;                      // Initialize all memory frames to -1, indicating they are empty
+        reference_bits_of_each_frame[i] = 0; // Initialize all reference bits to 0
     }
 
     // Opening access log files for each process
     FILE *files[NUM_PROCESS];
     for (int i = 0; i < NUM_PROCESS; i++)
     {
-        files[i] = fopen(paths[i], "r");  // Open the file corresponding to process i
+        files[i] = fopen(paths[i], "r"); // Open the file corresponding to process i
         if (files[i] == NULL)
         {
             // If opening any file fails, close all previously opened files and return an error
@@ -448,10 +476,10 @@ int subs_2nCh(char **paths)
         }
     }
 
-    int totalAccesses = 0;  // Total number of memory accesses processed
-    int pageFault = 0;      // Total number of page faults encountered
-    int pageNum;            // Variable to store the page number read from the file
-    char accessType;        // Variable to store the access type ('R' for read, 'W' for write)
+    int totalAccesses = 0; // Total number of memory accesses processed
+    int pageFault = 0;     // Total number of page faults encountered
+    int pageNum;           // Variable to store the page number read from the file
+    char accessType;       // Variable to store the access type ('R' for read, 'W' for write)
 
     // Main loop to process memory accesses
     while (fscanf(files[totalAccesses % NUM_PROCESS], "%d %c", &pageNum, &accessType) == 2)
@@ -468,7 +496,7 @@ int subs_2nCh(char **paths)
             return -1;
         }
 
-        int found = 0;  // Flag to indicate whether the page is found in memory
+        int found = 0; // Flag to indicate whether the page is found in memory
 
         // Check if the page is already in memory (Page Hit)
         for (int i = 0; i < MEMORY_SIZE; i++)
@@ -476,9 +504,9 @@ int subs_2nCh(char **paths)
             if (memory[i] == pageNum)
             {
                 // Page is found in memory
-                reference_bits_of_each_frame[i] = 1;  // Set the reference bit to 1 (page has been recently used)
-                found = 1;              // Set the found flag
-                break;                  // Exit the loop since the page is found
+                reference_bits_of_each_frame[i] = 1; // Set the reference bit to 1 (page has been recently used)
+                found = 1;                           // Set the found flag
+                break;                               // Exit the loop since the page is found
             }
         }
 
@@ -493,7 +521,7 @@ int subs_2nCh(char **paths)
             {
                 if (memory[i] == -1)
                 {
-                    free_frame = i;  // Found an empty frame
+                    free_frame = i; // Found an empty frame
                     break;
                 }
             }
@@ -501,8 +529,8 @@ int subs_2nCh(char **paths)
             if (free_frame != -1)
             {
                 // There is a free frame available
-                memory[free_frame] = pageNum;    // Load the new page into the free frame
-                reference_bits_of_each_frame[free_frame] = 1;  // Set the reference bit
+                memory[free_frame] = pageNum;                 // Load the new page into the free frame
+                reference_bits_of_each_frame[free_frame] = 1; // Set the reference bit
             }
             else
             {
@@ -513,23 +541,23 @@ int subs_2nCh(char **paths)
                     if (reference_bits_of_each_frame[circular_queue_pointer] == 0)
                     {
                         // Reference bit is 0; replace this page
-                        memory[circular_queue_pointer] = pageNum;        // Replace the page in memory with the new page
-                        reference_bits_of_each_frame[circular_queue_pointer] = 1;      // Set the reference bit for the new page
-                        circular_queue_pointer = (circular_queue_pointer + 1) % MEMORY_SIZE;  // Move the circular_queue_pointer to the next position
-                        break;  // Exit the loop after replacement
+                        memory[circular_queue_pointer] = pageNum;                            // Replace the page in memory with the new page
+                        reference_bits_of_each_frame[circular_queue_pointer] = 1;            // Set the reference bit for the new page
+                        circular_queue_pointer = (circular_queue_pointer + 1) % MEMORY_SIZE; // Move the circular_queue_pointer to the next position
+                        break;                                                               // Exit the loop after replacement
                     }
                     else
                     {
                         // Reference bit is 1; give a second chance
-                        reference_bits_of_each_frame[circular_queue_pointer] = 0;      // Reset the reference bit to 0
-                        circular_queue_pointer = (circular_queue_pointer + 1) % MEMORY_SIZE;  // Move the circular_queue_pointer to the next position
+                        reference_bits_of_each_frame[circular_queue_pointer] = 0;            // Reset the reference bit to 0
+                        circular_queue_pointer = (circular_queue_pointer + 1) % MEMORY_SIZE; // Move the circular_queue_pointer to the next position
                         // Continue the loop to check the next page
                     }
                 }
             }
         }
 
-        totalAccesses++;  // Increment the total number of accesses processed
+        totalAccesses++; // Increment the total number of accesses processed
     }
 
     // Closing all open files after processing is complete
@@ -538,7 +566,7 @@ int subs_2nCh(char **paths)
         fclose(files[i]);
     }
 
-    return pageFault;  // Return the total number of page faults encountered
+    return pageFault; // Return the total number of page faults encountered
 }
 
 /************************************************************************************************/
@@ -551,7 +579,7 @@ int subs_2nCh(char **paths)
 int subs_WS(char **paths, int set)
 {
     // Define working set window size (k)
-    int k = set;  // This value determines how many pages can be in the working set at once
+    int k = set; // This value determines how many pages can be in the working set at once
 
     // Memory Block Declaration
     int memory[MEMORY_SIZE];
@@ -681,9 +709,9 @@ int subs_WS(char **paths, int set)
                     return -1;
                 }
             }
-            else   // The working set is full; need to replace a page
+            else // The working set is full; need to replace a page
             {
-        
+
                 // Remove the oldest page from the working set queue
                 int page_to_remove = working_set_queue[0]; // Oldest page
 
