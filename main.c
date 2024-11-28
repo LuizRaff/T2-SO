@@ -15,7 +15,6 @@
 #define MEMORY_SIZE 16
 #define NRU_RESET_INTERVAL 15
 #define NUM_ROUNDS 10000
-#define WS_WINDOW_SIZE 3  // Window size for Working Set algorithm
 
 /* Macros */
 #define RANDOM_PAGE() (rand() % (NUM_PAGES))
@@ -28,10 +27,10 @@ int accessLogsGen(char **paths);
 int subs_NRU(char **paths);  // Not Recently Used (NRU)
 int subs_2nCh(char **paths); // Second Chance
 int subs_LRU(char **paths);  // Aging (LRU)
-int subs_WS(char **paths);   // Working Set (k)
+int subs_WS(char **paths, int set);   // Working Set (k)
 
 /* Main Function */
-int main(void)
+int main(int agrv, char **argc)
 {
     int pageFaultsLRU[NUM_ROUNDS];
     int pageFaultsNRU[NUM_ROUNDS];
@@ -75,7 +74,7 @@ int main(void)
             exit(1);
         }
 
-        pageFaultsWS[i] = subs_WS(processesPaths);
+        pageFaultsWS[i] = subs_WS(processesPaths, atoi(argc[1]));
         if (pageFaultsWS[i] == -1)
         {
             perror("Error when running Working Set algorithm");
@@ -112,7 +111,7 @@ int main(void)
     {
         total += pageFaultsWS[i];
     }
-    printf("Average Page Faults Working Set (k=%d): %d\n", WS_WINDOW_SIZE, total / NUM_ROUNDS);
+    printf("Average Page Faults Working Set (k=%d): %d\n", atoi(argc[1]), total / NUM_ROUNDS);
 
     return 0;
 }
@@ -549,10 +548,10 @@ int subs_2nCh(char **paths)
 /************************************************************************************************/
 /************************************************************************************************/
 /*              Working Set Algorithm           */
-int subs_WS(char **paths)
+int subs_WS(char **paths, int set)
 {
     // Define working set window size (k)
-    int k = WS_WINDOW_SIZE;  // This value determines how many pages can be in the working set at once
+    int k = set;  // This value determines how many pages can be in the working set at once
 
     // Memory Block Declaration
     int memory[MEMORY_SIZE];
