@@ -15,7 +15,7 @@
 #define NUM_ACCESS 120
 #define MEMORY_SIZE 16
 #define NRU_RESET_INTERVAL 15
-#define NUM_ROUNDS 1000
+#define NUM_ROUNDS 50
 
 /* Macros */
 #define RANDOM_PAGE() (rand() % (NUM_PAGES))
@@ -25,9 +25,9 @@
 int accessLogsGen(char **paths);
 
 /* Page Algorithms Declarations */
-int subs_NRU(char **paths);         // Not Recently Used (NRU)
+int subs_NRU(char **paths, int print);         // Not Recently Used (NRU)
 int subs_2nCh(char **paths);        // Second Chance
-int subs_LRU(char **paths);         // Aging (LRU)
+int subs_LRU(char **paths, int print);         // Aging (LRU)
 int subs_WS(char **paths, int set); // Working Set (k)
 
 /* Main Function */
@@ -65,7 +65,7 @@ int main(int argv, char **argc)
 
         if (strcmp(argc[1], "LRU") == 0)
         {
-            pageFaultsLRU[i] = subs_LRU(processesPaths);
+            pageFaultsLRU[i] = subs_LRU(processesPaths, 1);
             if (pageFaultsLRU[i] == -1)
             {
                 perror("Error when running LRU algorithm");
@@ -74,7 +74,7 @@ int main(int argv, char **argc)
         }
         else if (strcmp(argc[1], "NRU") == 0)
         {
-            pageFaultsNRU[i] = subs_NRU(processesPaths);
+            pageFaultsNRU[i] = subs_NRU(processesPaths, 1);
             if (pageFaultsNRU[i] == -1)
             {
                 perror("Error when running NRU algorithm");
@@ -163,22 +163,24 @@ typedef struct
 {
     int dados[MEMORY_SIZE];
     int tamanho;
+    int referencia[MEMORY_SIZE];
     int modificado[MEMORY_SIZE];
 } LRU_Fila;
 
 // Initializes the queue
-void inicializarFila(LRU_Fila *fila)
+void inicializarFilaLRU(LRU_Fila *fila)
 {
     fila->tamanho = 0;
     for (int i = 0; i < MEMORY_SIZE; i++)
     {
         fila->dados[i] = -1;
+        fila->referencia[i] = 0;
         fila->modificado[i] = 0;
     }
 }
 
 // Checks if a value is in the queue
-int contem(LRU_Fila *fila, int valor)
+int contemLRU(LRU_Fila *fila, int valor)
 {
     for (int i = 0; i < fila->tamanho; i++)
     {
@@ -191,7 +193,7 @@ int contem(LRU_Fila *fila, int valor)
 }
 
 // Returns the index of the value in the queue, or -1 if not found
-int indexOf(LRU_Fila *fila, int valor)
+int indexOfLRU(LRU_Fila *fila, int valor)
 {
     for (int i = 0; i < fila->tamanho; i++)
     {
@@ -204,7 +206,7 @@ int indexOf(LRU_Fila *fila, int valor)
 }
 
 // Removes a specific value from the queue
-void removerValor(LRU_Fila *fila, int valor)
+void removerValorLRU(LRU_Fila *fila, int valor)
 {
     int i, j;
     for (i = 0; i < fila->tamanho; i++)
@@ -216,6 +218,7 @@ void removerValor(LRU_Fila *fila, int valor)
             {
                 fila->dados[j] = fila->dados[j + 1];
                 fila->modificado[j] = fila->modificado[j + 1];
+                fila->referencia[j] = fila->referencia[j + 1];
             }
             fila->tamanho--;
             return;
@@ -224,12 +227,12 @@ void removerValor(LRU_Fila *fila, int valor)
 }
 
 // Adds a value to the queue
-void adicionar(LRU_Fila *fila, int valor, int *pageFault, int pageModified)
+void adicionarLRU(LRU_Fila *fila, int valor, int *pageFault, int pageModified, int pageReferenced)
 {
-    if (contem(fila, valor))
+    if (contemLRU(fila, valor))
     {
         // Remove the value if it already exists
-        removerValor(fila, valor);
+        removerValorLRU(fila, valor);
     }
     else
     {
@@ -238,21 +241,22 @@ void adicionar(LRU_Fila *fila, int valor, int *pageFault, int pageModified)
         // If the queue is full, remove the least recently used page
         if (fila->tamanho == MEMORY_SIZE)
         {
-            printf("Page fault: %d\n", valor);
-            printf("Page to remove: %d\n", fila->dados[0]);
+            printf("Page fault: %d\n", valor+1);
+            printf("Page to remove: %d\n", fila->dados[0]+1);
             if (fila->modificado[0] == 1)
             {
-                printf("Dirty page replaced and written back to swap area.\n\n");
+                printf("Dirty page replaced and written back to swap area.\n");
             }
             else
             {
-                printf("Clean page replaced.\n\n");
+                printf("Clean page replaced.\n");
             }
             // Shift all elements to the left to remove the oldest page
             for (int i = 0; i < MEMORY_SIZE - 1; i++)
             {
                 fila->dados[i] = fila->dados[i + 1];
                 fila->modificado[i] = fila->modificado[i + 1];
+                fila->referencia[i] = fila->referencia[i + 1];
             }
             fila->tamanho--;
         }
@@ -261,24 +265,35 @@ void adicionar(LRU_Fila *fila, int valor, int *pageFault, int pageModified)
     // Add the value to the end of the queue
     fila->dados[fila->tamanho] = valor;
     fila->modificado[fila->tamanho] = pageModified;
+    fila->referencia[fila->tamanho] = pageReferenced;
     fila->tamanho++;
 }
 
-void imprimirFila(LRU_Fila *fila)
+void imprimiTabelaProcessosLRU(LRU_Fila *fila)
 {
-    printf("Fila: \n");
-    for (int i = 0; i < fila->tamanho; i++)
+    printf("Tabela de Processos: \n");
+    printf("----------------------------\n");
+    printf("| Page | Frame | Ref | Mod |\n");
+    for (int i = 0; i < NUM_PAGES; i++)
     {
-        printf("%d %d\n", fila->dados[i], fila->modificado[i]);
+        int index = indexOfLRU(fila, i);
+        if (index != -1)
+        {
+            printf("|  %2d  |   %2d  |  %d  |  %d  |\n", i+1, index+1, fila->referencia[index], fila->modificado[index]);
+        }
+        else
+        {
+            printf("|  %2d  | ----- | --- | --- |\n", i+1);
+        }
     }
-    printf("\n");
+    printf("----------------------------\n");
 }
 
-int subs_LRU(char **paths)
+int subs_LRU(char **paths, int print)
 {
     // Memory Block Declaration
     LRU_Fila lru_Fila;
-    inicializarFila(&lru_Fila);
+    inicializarFilaLRU(&lru_Fila);
 
     // Opening files
     FILE *files[NUM_PROCESS];
@@ -301,6 +316,8 @@ int subs_LRU(char **paths)
     int pageFault = 0;
     while (fscanf(files[totalAccesses % NUM_PROCESS], "%d %c", &pageNum, &accessType) == 2)
     {
+        printf("Accesso: %d %c\n", pageNum+1, accessType);
+
         // Check if the page number is valid
         if (pageNum < 0)
         {
@@ -312,12 +329,19 @@ int subs_LRU(char **paths)
             return -1;
         }
 
+        int pageReferenced = (accessType == 'R') ? 1 : 0;
         int pageModified = (accessType == 'W') ? 1 : 0;
 
         // Add the page to the queue
-        adicionar(&lru_Fila, pageNum, &pageFault, pageModified);
+        adicionarLRU(&lru_Fila, pageNum, &pageFault, pageModified, pageReferenced);
 
         totalAccesses++;
+
+        if(print)
+        {
+            imprimiTabelaProcessosLRU(&lru_Fila);
+        }
+
     }
 
     // Closing files
@@ -379,8 +403,39 @@ int NRU_whichPageToRemove(int *memory, int *pageModified, int *pageReferenced, i
 
     return -1;
 }
+// Returns the index of the value in the queue, or -1 if not found
+int indexOfNRU(int* memory, int valor)
+{
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        if (memory[i] == valor)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+void imprimiTabelaProcessosNRU(int* memory, int* pageReferenced, int* pageModified)
+{
+    printf("Tabela de Processos: \n");
+    printf("----------------------------\n");
+    printf("| Page | Frame | Ref | Mod |\n");
+    for (int i = 0; i < NUM_PAGES; i++)
+    {
+        int index = indexOfNRU(memory, i);
+        if (index != -1)
+        {
+            printf("|  %2d  |   %2d  |  %d  |  %d  |\n", i+1, index+1, pageReferenced[index], pageModified[index]);
+        }
+        else
+        {
+            printf("|  %2d  | ----- | --- | --- |\n", i+1);
+        }
+    }
+    printf("----------------------------\n");
+}
 
-int subs_NRU(char **paths)
+int subs_NRU(char **paths, int print)
 {
     // Memory Block Declaration
     int memory[MEMORY_SIZE];
@@ -418,6 +473,8 @@ int subs_NRU(char **paths)
 
     while (fscanf(files[totalAccesses % NUM_PROCESS], "%d %c", &pageNum, &accessType) == 2)
     {
+        printf("Accesso: %d %c\n", pageNum+1, accessType);
+     
         // Check if the page number is valid
         if (pageNum < 0)
         {
@@ -470,11 +527,11 @@ int subs_NRU(char **paths)
             printf("Page to remove: %d\n", memory[pageToRemove]);
             if (memory[pageToRemove] != -1 && pageModified[pageToRemove] == 1)
             {
-                printf("Dirty page replaced and written back to swap area.\n\n");
+                printf("Dirty page replaced and written back to swap area.\n");
             }
             else
             {
-                printf("Clean page replaced.\n\n");
+                printf("Clean page replaced.\n");
             }
 
             // Replace the page in memory and update bits
@@ -483,15 +540,9 @@ int subs_NRU(char **paths)
             pageModified[pageToRemove] = (accessType == 'W') ? 1 : 0;
         }
 
-        // accessesSinceReset++;
-        // if (accessesSinceReset >= NRU_RESET_INTERVAL)
-        // {
-        //     for (int i = 0; i < MEMORY_SIZE; i++)
-        //     {
-        //         pageReferenced[i] = 0;
-        //     }
-        //     accessesSinceReset = 0;
-        // }
+        if(print){
+            imprimiTabelaProcessosNRU(memory, pageReferenced, pageModified);
+        }
 
         totalAccesses++;
     }
