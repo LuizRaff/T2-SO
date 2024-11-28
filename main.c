@@ -363,7 +363,7 @@ int NRU_whichPageToRemove(int *memory, int *pageModified, int *pageReferenced, i
         int count = 0;
         for (int i = 0; i < MEMORY_SIZE; i++)
         {
-            int whichCase = (pageReferenced[i] << 1) | pageModified[i];
+            int whichCase = (pageModified[i] << 1) | pageReferenced[i];
             if (whichCase == caso)
             {
                 candidates[count++] = i;
