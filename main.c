@@ -53,6 +53,7 @@ int main(int argc, char **argv)
 
     // Running page replacement algorithms
     printf("Gerando novos logs de accesso...\n");
+    sleep(1);
     if (strcmp(argv[1], "REFRESH") == 0)
     {
         // Generating process access logs
@@ -66,15 +67,19 @@ int main(int argc, char **argv)
     {
 
         printf("Algoritmo Escolhido: %s\n", argv[1]);
+        sleep(1);
         if (argc > 2)
         {
             printf("Parâmetro do Working Set: %s\n", argv[2]);
+            sleep(1);
         }
         printf("Numero de rodadas: %d\n\n", NUM_ROUNDS);
+        sleep(1);
 
         for (int i = 0; i < NUM_ROUNDS; i++)
         {
             printf("Rodada %d\n\n", i + 1);
+            sleep(1);
 
             if (strcmp(argv[1], "LRU") == 0)
             {
@@ -108,6 +113,7 @@ int main(int argc, char **argv)
                 if (argc < 3 || atoi(argv[2]) == 0)
                 {
                     fprintf(stderr, "Missing or invalid parameter k for Working Set algorithm. Please provide a valid integer.\n");
+                    sleep(1);
                     exit(1);
                 }
 
@@ -116,6 +122,7 @@ int main(int argc, char **argv)
                 if (k > MEMORY_SIZE)
                 {
                     fprintf(stderr, "Ops.. o programa foi interrompido pois o valor de k deve ser menor ou igual a %d. Por favor ensira o valor de k novamente.\n", MEMORY_SIZE);
+                    sleep(1);
                     exit(1);
                 }
 
@@ -146,6 +153,7 @@ int main(int argc, char **argv)
             total += pageFaultsLRU[i];
         }
         printf("Average Page Faults LRU: %d\n", total / NUM_ROUNDS);
+        sleep(1);
     }
     else if (strcmp(argv[1], "NRU") == 0)
     {
@@ -155,6 +163,7 @@ int main(int argc, char **argv)
             total += pageFaultsNRU[i];
         }
         printf("Average Page Faults NRU: %d\n", total / NUM_ROUNDS);
+        sleep(1);
     }
     else if (strcmp(argv[1], "2nCH") == 0)
     {
@@ -164,6 +173,7 @@ int main(int argc, char **argv)
             total += pageFaults2nCH[i];
         }
         printf("Average Page Faults Second Chance: %d\n", total / NUM_ROUNDS);
+        sleep(1);
     }
     else if (strcmp(argv[1], "WS") == 0)
     {
@@ -173,6 +183,7 @@ int main(int argc, char **argv)
             total += pageFaultsWS[i];
         }
         printf("Average Page Faults Working Set (k=%d): %d\n", atoi(argv[2]), total / NUM_ROUNDS);
+        sleep(1);
     }
     return 0;
 }
@@ -617,6 +628,7 @@ int subs_2nCh(char **paths) {
 
     while (fscanf(files[totalAccesses % NUM_PROCESS], "%d %c", &pageNum, &accessType) == 2) {
         printf("Accesso: %d %c\n", pageNum + 1, accessType);
+        sleep(1);
 
         if (pageNum < 0) {
             perror("Invalid page number");
@@ -638,14 +650,18 @@ int subs_2nCh(char **paths) {
         if (!found) {
             pageFault++;
             printf("Page fault: %d\n", pageNum + 1);
+            sleep(1);
 
             while (1) {
                 if (reference_bits[circular_queue_pointer] == 0) {
                     printf("Page to remove: %d\n", memory[circular_queue_pointer] + 1);
+                    sleep(1);
                     if (modified_bits[circular_queue_pointer] == 1) {
                         printf("Dirty page replaced and written back to swap area.\n");
+                        sleep(1);
                     } else {
                         printf("Clean page replaced.\n");
+                        sleep(1);
                     }
 
                     memory[circular_queue_pointer] = pageNum;
@@ -662,29 +678,36 @@ int subs_2nCh(char **paths) {
 
         // Print the memory state after each access
         printf("Tabela de Páginas:\n");
+        sleep(1);
         printf("----------------------------------------\n");
+        sleep(1);
         printf("| Page | Frame | Ref | Mod |\n");
+        sleep(1);
         for (int i = 0; i < NUM_PAGES; i++) {
             int found_in_memory = 0;
             for (int j = 0; j < MEMORY_SIZE; j++) {
                 if (memory[j] == i) {
                     printf("|  %2d  |   %2d  |  %d  |  %d  |\n",
                            i + 1, j + 1, reference_bits[j], modified_bits[j]);
+                           sleep(1);
                     found_in_memory = 1;
                     break;
                 }
             }
             if (!found_in_memory) {
                 printf("|  %2d  |   -   |  -  |  -  |\n", i + 1);
+                sleep(1);
             }
         }
         printf("----------------------------------------\n");
+        sleep(1);
 
         totalAccesses++;
     }
 
     for (int i = 0; i < NUM_PROCESS; i++) fclose(files[i]);
     printf("Total page faults: %d\n", pageFault);
+    sleep(1);
     return pageFault;
 }
 
@@ -742,10 +765,12 @@ int subs_WS(char **paths, int set) {
 
                 if (pageNum < 0 || pageNum >= NUM_PAGES) {
                     printf("Invalid page number %d for process P%d\n", pageNum, processID + 1);
+                    sleep(1);
                     continue;
                 }
 
                 printf("Process P%d accesses page %d (%c)\n", processID + 1, pageNum, accessType);
+                sleep(1);
                 int found = 0;
 
                 for (int i = 0; i < working_set_size[processID]; i++) {
@@ -766,6 +791,7 @@ int subs_WS(char **paths, int set) {
                 if (!found) {
                     pageFaults++;
                     printf("Page fault in process P%d for page %d\n", processID + 1, pageNum);
+                    sleep(1);
 
                     if (working_set_size[processID] < k && working_set_size[processID] < MEMORY_SIZE) {
                         for (int i = 0; i < MEMORY_SIZE; i++) {
@@ -782,10 +808,13 @@ int subs_WS(char **paths, int set) {
                         for (int i = 0; i < MEMORY_SIZE; i++) {
                             if (memory[processID][i] == page_to_remove) {
                                 printf("Replacing page %d of process P%d\n", page_to_remove, processID + 1);
+                                sleep(1);
                                 if (modified_bits[processID][page_to_remove] == 1) {
                                     printf("Dirty page replaced and written back to swap.\n");
+                                    sleep(1);
                                 } else {
                                     printf("Clean page replaced.\n");
+                                    sleep(1);
                                 }
                                 memory[processID][i] = pageNum;
                                 modified_bits[processID][pageNum] = (accessType == 'W') ? 1 : 0;
@@ -810,23 +839,29 @@ int subs_WS(char **paths, int set) {
 
                 // Print table for the current process
                 printf("Tabela de Páginas do Processo P%d:\n", processID + 1);
+                sleep(1);
                 printf("----------------------------------------\n");
+                sleep(1);
                 printf("| Page | Frame | Ref | Mod |\n");
+                sleep(1);
                 for (int i = 0; i < NUM_PAGES; i++) {
                     int found_in_memory = 0;
                     for (int j = 0; j < MEMORY_SIZE; j++) {
                         if (memory[processID][j] == i) {
                             printf("|  %2d  |   %2d  |  %d  |  %d  |\n",
                                    i + 1, j + 1, reference_bits[processID][i], modified_bits[processID][i]);
+                            sleep(1);
                             found_in_memory = 1;
                             break;
                         }
                     }
                     if (!found_in_memory) {
                         printf("|  %2d  |   -   |  -  |  -  |\n", i + 1);
+                        sleep(1);
                     }
                 }
                 printf("----------------------------------------\n");
+                sleep(1);
             }
         }
 
@@ -836,6 +871,7 @@ int subs_WS(char **paths, int set) {
 
     for (int i = 0; i < NUM_PROCESS; i++) fclose(files[i]);
     printf("Total page faults: %d\n", pageFaults);
+    sleep(1);
     return pageFaults;
 }
 
