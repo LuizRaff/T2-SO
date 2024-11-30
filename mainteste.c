@@ -1,536 +1,386 @@
-/* Modificado para usar apenas arq_teste */
+/* Includes */
 #include <stdio.h>
-#include <time.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <semaphore.h>
+#include <sys/wait.h>
+#include <sys/stat.h> /* For mode constants */
 #include <string.h>
+#include <time.h>
 
 /* Defines */
 #define NUM_PROCESS 4
 #define NUM_PAGES 32
 #define NUM_ACCESS 120
 #define MEMORY_SIZE 16
-#define NRU_RESET_INTERVAL 15
-#define NUM_ROUNDS 1
+#define NUM_ROUNDS 50
+#define SHM_NAME "/my_shared_memory"
+#define SEM_NAME "/my_semaphore"
+#define SHM_SIZE sizeof(SharedData)
 
-/* Macros */
 #define RANDOM_PAGE() (rand() % (NUM_PAGES))
 #define RANDOM_ACCESS() (rand() % 2)
 
-/* Access Log Generator Function */
-int accessLogsGen(const char *path);
+/* Estrutura para os dados compartilhados */
+typedef struct
+{
+    int flag;
+    int pageNum;
+    char accessType;
+} SharedData;
+
+void gmv(int algorithm, int set, int printFlag);
+
+/* Access Log Generator Declaration */
+int accessLogsGen(char **paths);
 
 /* Page Algorithms Declarations */
-int subs_NRU(const char *path, int print); // Not Recently Used (NRU)
-int subs_2nCh(const char *path);           // Second Chance
-int subs_LRU(const char *path, int print); // Aging (LRU)
-int subs_WS(const char *path, int set);    // Working Set (k)
+int subs_NRU(int memorySeg);         // Not Recently Used (NRU)
+int subs_2nCh(int memorySeg);        // Second Chance
+int subs_LRU(int memorySeg);         // Aging (LRU)
+int subs_WS(int set, int memorySeg); // Working Set (k)
 
-/* Main Function */
 int main(int argc, char **argv)
 {
-    int pageFaultsLRU[NUM_ROUNDS];
-    int pageFaultsNRU[NUM_ROUNDS];
-    int pageFaults2nCH[NUM_ROUNDS];
-    int pageFaultsWS[NUM_ROUNDS];
+    int algorithm;
 
-    // Path for single access log file
-    const char *arq_teste = "Test_AccessesLog.txt";
-
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <algorithm> [parameters]\n", argv[0]);
+    // ARGV error checking
+    if (argc < 3)
+    {
+        fprintf(stderr, "Usage ERROR: <Print Flag> <algorithm> {if WS}:[parameters]\n");
         exit(EXIT_FAILURE);
     }
 
-    // Running page replacement algorithms
-    printf("Gerando novo log de acesso...\n");
-    if (strcmp(argv[1], "REFRESH") == 0) {
-        // Generating access log
-        if (accessLogsGen(arq_teste) == 1) {
+    if (strcmp(argv[2], "NRU") == 0)
+    {
+        algorithm = 0;
+    }
+    else if (strcmp(argv[2], "2nCH") == 0)
+    {
+        algorithm = 1;
+    }
+    else if (strcmp(argv[2], "LRU") == 0)
+    {
+        algorithm = 2;
+    }
+    else if (strcmp(argv[2], "WS") == 0)
+    {
+        algorithm = 3;
+    }
+    else if (strcmp(argv[2], "REFRESH") == 0)
+    {
+        algorithm = 4;
+    }
+    else
+    {
+        fprintf(stderr, "Invalid algorithm. Please choose between NRU, 2nCH, LRU or WS.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (atoi(argv[1]) != 0 && atoi(argv[1]) != 1)
+    {
+        fprintf(stderr, "Invalid print flag. Please choose between 0 or 1.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Paths for access logs files
+    char *processesPaths[NUM_PROCESS] = {"P1_AccessesLog.txt",
+                                         "P2_AccessesLog.txt",
+                                         "P3_AccessesLog.txt",
+                                         "P4_AccessesLog.txt"};
+
+    // Print Flag Declaration / Instantiation
+    int printFlag = atoi(argv[1]);
+
+    srand(time(NULL) ^ getpid());
+    int shm_fd;
+    SharedData *shared_data;
+    sem_t *sem;
+
+    // Remove o objeto de memória compartilhada caso exista
+    shm_unlink(SHM_NAME);
+
+    // Cria ou abre a memória compartilhada POSIX
+    shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
+    if (shm_fd == -1)
+    {
+        perror("shm_open falhou");
+        exit(EXIT_FAILURE);
+    }
+
+    // Define o tamanho da memória compartilhada
+    if (ftruncate(shm_fd, SHM_SIZE) == -1)
+    {
+        perror("ftruncate falhou");
+        shm_unlink(SHM_NAME);
+        exit(EXIT_FAILURE);
+    }
+
+    // Mapeia a memória compartilhada
+    shared_data = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (shared_data == MAP_FAILED)
+    {
+        perror("mmap falhou");
+        shm_unlink(SHM_NAME);
+        exit(EXIT_FAILURE);
+    }
+
+    // Inicializa a estrutura compartilhada
+    shared_data->flag = 0;
+
+    // Remove o semáforo caso exista
+    sem_unlink(SEM_NAME);
+
+    // Cria o semáforo
+    sem = sem_open(SEM_NAME, O_CREAT, 0644, 1);
+    if (sem == SEM_FAILED)
+    {
+        perror("sem_open falhou");
+        shm_unlink(SHM_NAME);
+        munmap(shared_data, SHM_SIZE);
+        exit(EXIT_FAILURE);
+    }
+
+    // Access Log Generator
+    if (strcmp(argv[2], "REFRESH") == 0)
+    {
+        // Running page replacement algorithms
+        printf("Gerando novos logs de accesso...\n");
+        usleep(500000);
+        // Generating process access logs
+        if (accessLogsGen(processesPaths) == 1)
+        {
             perror("Error when loading access logs");
             exit(1);
         }
-    } else {
-        printf("Algoritmo Escolhido: %s\n", argv[1]);
-        if (argc > 2) {
-            printf("Parâmetro do Working Set: %s\n", argv[2]);
+    }
+    else
+    {
+        pid_t pid = fork();
+        if (pid == 0)
+        {
+            // Processo filho
+            sem_close(sem); // Fecha o semáforo no processo filho (será reaberto em gmv)
+            gmv(algorithm, atoi(argv[3]), printFlag);
+            exit(0);
         }
-        printf("Numero de rodadas: %d\n\n", NUM_ROUNDS);
+        else if (pid > 0)
+        {
+            // Processo pai
 
-        for (int i = 0; i < NUM_ROUNDS; i++) {
-            printf("Rodada %d\n\n", i + 1);
+            // Abrindo os arquivos
+            FILE *files[NUM_PROCESS];
+            for (int i = 0; i < NUM_PROCESS; i++)
+            {
+                files[i] = fopen(processesPaths[i], "r");
+                if (files[i] == NULL)
+                {
+                    perror("Erro ao abrir os arquivos de log");
+                    for (int j = 0; j < i; j++)
+                    {
+                        fclose(files[j]);
+                    }
+                    exit(EXIT_FAILURE);
+                }
+            }
+            printf("Arquivos abertos com sucesso!\n\n");
+            usleep(1000000);
 
-            if (strcmp(argv[1], "LRU") == 0) {
-                pageFaultsLRU[i] = subs_LRU(arq_teste, 1);
-                if (pageFaultsLRU[i] == -1) {
-                    perror("Error when running LRU algorithm");
-                    exit(1);
+            printf("Algoritmo Escolhido: %s\n", argv[2]);
+            usleep(500000);
+            if (strcmp(argv[2], "WS") == 0)
+            {
+                if (argc > 3)
+                {
+                    printf("Parâmetro do Working Set: %s\n", argv[3]);
                 }
-            } else if (strcmp(argv[1], "NRU") == 0) {
-                pageFaultsNRU[i] = subs_NRU(arq_teste, 1);
-                if (pageFaultsNRU[i] == -1) {
-                    perror("Error when running NRU algorithm");
-                    exit(1);
+                else
+                {
+                    fprintf(stderr, "Missing parameter k for Working Set algorithm. Please provide a valid integer.\n");
+                    exit(EXIT_FAILURE);
                 }
-            } else if (strcmp(argv[1], "2nCH") == 0) {
-                pageFaults2nCH[i] = subs_2nCh(arq_teste);
-                if (pageFaults2nCH[i] == -1) {
-                    perror("Error when running Second Chance algorithm");
-                    exit(1);
+            }
+
+            usleep(500000);
+            printf("Numero de rodadas: %d\n\n", NUM_ROUNDS);
+            usleep(500000);
+
+            int totalAccesses = 0;
+            char accessType;
+            int pageNum;
+            int aux;
+            while (1)
+            {
+                aux = fscanf(files[totalAccesses % NUM_PROCESS], "%d %c", &pageNum, &accessType);
+                if (aux != 2)
+                {
+                    break;
                 }
-            } else if (strcmp(argv[1], "WS") == 0) {
-                if (argc < 3) {
-                    perror("Missing parameter k for Working Set algorithm");
-                    exit(1);
+                sem_wait(sem);
+                if (shared_data->flag == 1)
+                {
+                    usleep(500000);
+                    shared_data->flag = 0;
+                    shared_data->pageNum = pageNum;
+                    shared_data->accessType = accessType;
                 }
-                pageFaultsWS[i] = subs_WS(arq_teste, atoi(argv[2]));
-                if (pageFaultsWS[i] == -1) {
-                    perror("Error when running Working Set algorithm");
-                    exit(1);
-                }
-            } else {
-                perror("Invalid algorithm");
-                exit(1);
+                sem_post(sem);
+                totalAccesses++;
+                usleep(100000); // Pequena espera para evitar loop rápido demais
+            }
+            sem_wait(sem);
+            shared_data->flag = 2; // Sinaliza para o filho terminar
+            sem_post(sem);
+
+            // Aguarda o filho terminar
+            wait(NULL);
+
+            // Limpa recursos
+            sem_close(sem);
+            sem_unlink(SEM_NAME);
+            munmap(shared_data, SHM_SIZE);
+            shm_unlink(SHM_NAME);
+
+            for (int j = 0; j < NUM_PROCESS; j++)
+            {
+                fclose(files[j]);
             }
         }
+        else
+        {
+            perror("fork falhou");
+            exit(EXIT_FAILURE);
+        }
     }
 
-    // Calculating and printing average page faults
-    int total;
-    if (strcmp(argv[1], "LRU") == 0) {
-        total = 0;
-        for (int i = 0; i < NUM_ROUNDS; i++) {
-            total += pageFaultsLRU[i];
-        }
-        printf("Average Page Faults LRU: %d\n", total / NUM_ROUNDS);
-    } else if (strcmp(argv[1], "NRU") == 0) {
-        total = 0;
-        for (int i = 0; i < NUM_ROUNDS; i++) {
-            total += pageFaultsNRU[i];
-        }
-        printf("Average Page Faults NRU: %d\n", total / NUM_ROUNDS);
-    } else if (strcmp(argv[1], "2nCH") == 0) {
-        total = 0;
-        for (int i = 0; i < NUM_ROUNDS; i++) {
-            total += pageFaults2nCH[i];
-        }
-        printf("Average Page Faults Second Chance: %d\n", total / NUM_ROUNDS);
-    } else if (strcmp(argv[1], "WS") == 0) {
-        total = 0;
-        for (int i = 0; i < NUM_ROUNDS; i++) {
-            total += pageFaultsWS[i];
-        }
-        printf("Average Page Faults Working Set (k=%d): %d\n", atoi(argv[2]), total / NUM_ROUNDS);
-    }
     return 0;
 }
 
+void gmv(int algorithm, int set, int printFlag)
+{
+    srand(time(NULL) ^ getpid());
+    int shm_fd;
+    SharedData *shared_data;
+    sem_t *sem;
+
+    // Abre a memória compartilhada existente
+    shm_fd = shm_open(SHM_NAME, O_RDWR, 0666);
+    if (shm_fd == -1)
+    {
+        perror("shm_open falhou no filho");
+        exit(EXIT_FAILURE);
+    }
+
+    // Mapeia a memória compartilhada
+    shared_data = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (shared_data == MAP_FAILED)
+    {
+        perror("mmap falhou no filho");
+        exit(EXIT_FAILURE);
+    }
+
+    // Abre o semáforo existente
+    sem = sem_open(SEM_NAME, 0);
+    if (sem == SEM_FAILED)
+    {
+        perror("sem_open falhou no filho");
+        munmap(shared_data, SHM_SIZE);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Filho iniciado\n");
+
+    while (1)
+    {
+        sem_wait(sem);
+        if (shared_data->flag == 0)
+        {
+            usleep(500000);
+            shared_data->flag = 1;
+            printf("Acesso: %d %c\n", shared_data->pageNum, shared_data->accessType);
+        }
+        else if (shared_data->flag == 2)
+        {
+            sem_post(sem);
+            break; // Sinal para terminar
+        }
+        sem_post(sem);
+        usleep(100000); // Pequena espera para evitar loop rápido demais
+    }
+
+    // Limpa recursos
+    sem_close(sem);
+    munmap(shared_data, SHM_SIZE);
+    printf("Filho terminou\n");
+}
+
 /************************************************************************************************/
-/* Access Logs Generator Function */
-int accessLogsGen(const char *path) {
+/* Access Log Generator */
+int accessLogsGen(char **paths)
+{
     FILE *file;
     srand(time(NULL));
 
-    file = fopen(path, "w");
-    if (file == NULL) {
-        return 1;
-    }
-
-    for (int j = 0; j < NUM_ACCESS; j++) {
-        if (RANDOM_ACCESS()) { // Read
-            fprintf(file, "%d R\n", RANDOM_PAGE());
-        } else { // Write
-            fprintf(file, "%d W\n", RANDOM_PAGE());
+    for (int i = 0; i < NUM_PROCESS; i++)
+    {
+        file = fopen(paths[i], "a+");
+        if (file == NULL)
+        {
+            return 1;
         }
+        else
+        {
+            for (int j = 0; j < NUM_ACCESS; j++)
+            {
+                if (RANDOM_ACCESS())
+                { // Read Access
+                    fprintf(file, "%d R\n", RANDOM_PAGE());
+                }
+                else
+                { // Write Access
+                    fprintf(file, "%d W\n", RANDOM_PAGE());
+                }
+            }
+        }
+
+        fclose(file);
     }
 
-    fclose(file);
     return 0;
 }
+/************************************************************************************************/
+
+/* Page Algorithms */
+/************************************************************************************************/
+/* Not Recently Used (NRU) */
+int subs_NRU(int memorySeg)
+{
+    return -1;
+};
+/************************************************************************************************/
 
 /************************************************************************************************/
-/* Modificações feitas nas funções dos algoritmos */
+/* Second Chance */
+int subs_2nCh(int memorySeg)
+{
+    return -1;
+};
+/************************************************************************************************/
 
+/************************************************************************************************/
+/* Agin (LRU) */
+int subs_LRU(int memorySeg)
+{
+    return -1;
+};
+/************************************************************************************************/
 
-// Faça alterações semelhantes para `subs_NRU`, `subs_2nCh` e `subs_WS`, utilizando `path` para abrir e manipular `arq_teste`.
-int subs_LRU(const char *path, int print) {
-    // Declaração da memória e variáveis auxiliares
-    int memory[MEMORY_SIZE];
-    int reference[MEMORY_SIZE];
-    int modified[MEMORY_SIZE];
-    int pageFaults = 0;
-    int currentSize = 0;
-
-    // Inicializando as estruturas
-    for (int i = 0; i < MEMORY_SIZE; i++) {
-        memory[i] = -1;
-        reference[i] = 0;
-        modified[i] = 0;
-    }
-
-    FILE *file = fopen(path, "r");
-    if (!file) {
-        perror("Error opening access log");
-        return -1;
-    }
-
-    int pageNum;
-    char accessType;
-
-    while (fscanf(file, "%d %c", &pageNum, &accessType) == 2) {
-        int found = 0;
-
-        // Verifica se a página já está na memória
-        for (int i = 0; i < currentSize; i++) {
-            if (memory[i] == pageNum) {
-                found = 1;
-                // Atualiza os bits de referência e modificação
-                reference[i] = 1;
-                if (accessType == 'W') {
-                    modified[i] = 1;
-                }
-                break;
-            }
-        }
-
-        if (!found) {
-            // Page Fault
-            pageFaults++;
-
-            // Substituição se a memória estiver cheia
-            if (currentSize == MEMORY_SIZE) {
-                int indexToRemove = 0;
-                for (int i = 0; i < MEMORY_SIZE; i++) {
-                    if (reference[i] == 0) {
-                        indexToRemove = i;
-                        break;
-                    }
-                    reference[i] = 0; // Reseta os bits de referência
-                }
-
-                // Remove a página escolhida
-                if (modified[indexToRemove] == 1) {
-                    printf("Dirty page replaced: %d\n", memory[indexToRemove]);
-                } else {
-                    printf("Clean page replaced: %d\n", memory[indexToRemove]);
-                }
-                memory[indexToRemove] = pageNum;
-                modified[indexToRemove] = (accessType == 'W') ? 1 : 0;
-                reference[indexToRemove] = 1;
-            } else {
-                // Insere a página diretamente se houver espaço
-                memory[currentSize] = pageNum;
-                modified[currentSize] = (accessType == 'W') ? 1 : 0;
-                reference[currentSize] = 1;
-                currentSize++;
-            }
-        }
-
-        // Imprime o estado da memória
-        if (print) {
-            printf("Tabela de Páginas (LRU):\n");
-            printf("--------------------------------\n");
-            printf("| Page | Ref | Mod |\n");
-            for (int i = 0; i < MEMORY_SIZE; i++) {
-                if (memory[i] != -1) {
-                    printf("|  %2d  |  %d  |  %d  |\n", memory[i], reference[i], modified[i]);
-                } else {
-                    printf("|  --   |  -  |  -  |\n");
-                }
-            }
-            printf("--------------------------------\n");
-        }
-    }
-
-    fclose(file);
-    return pageFaults;
-}
-
-int subs_NRU(const char *path, int print) {
-    int memory[MEMORY_SIZE];
-    int modified[MEMORY_SIZE];
-    int referenced[MEMORY_SIZE];
-    int pageFaults = 0;
-
-    for (int i = 0; i < MEMORY_SIZE; i++) {
-        memory[i] = -1;
-        modified[i] = 0;
-        referenced[i] = 0;
-    }
-
-    FILE *file = fopen(path, "r");
-    if (!file) {
-        perror("Error opening access log");
-        return -1;
-    }
-
-    int pageNum;
-    char accessType;
-
-    while (fscanf(file, "%d %c", &pageNum, &accessType) == 2) {
-        int found = 0;
-
-        // Verifica se a página está na memória
-        for (int i = 0; i < MEMORY_SIZE; i++) {
-            if (memory[i] == pageNum) {
-                found = 1;
-                referenced[i] = 1;
-                if (accessType == 'W') {
-                    modified[i] = 1;
-                }
-                break;
-            }
-        }
-
-        if (!found) {
-            pageFaults++;
-
-            // Identifica página a ser removida baseado nas classes
-            int toRemove = -1;
-            for (int priority = 0; priority < 4; priority++) {
-                for (int i = 0; i < MEMORY_SIZE; i++) {
-                    if (memory[i] != -1) {
-                        int currentPriority = (modified[i] << 1) | referenced[i];
-                        if (currentPriority == priority) {
-                            toRemove = i;
-                            break;
-                        }
-                    } else {
-                        toRemove = i; // Posição vazia
-                        break;
-                    }
-                }
-                if (toRemove != -1) break;
-            }
-
-            // Substituição
-            if (memory[toRemove] != -1) {
-                if (modified[toRemove] == 1) {
-                    printf("Dirty page replaced: %d\n", memory[toRemove]);
-                } else {
-                    printf("Clean page replaced: %d\n", memory[toRemove]);
-                }
-            }
-            memory[toRemove] = pageNum;
-            modified[toRemove] = (accessType == 'W') ? 1 : 0;
-            referenced[toRemove] = 1;
-        }
-
-        // Reset dos bits de referência (simula intervalos periódicos)
-        static int resetCounter = 0;
-        resetCounter++;
-        if (resetCounter >= NRU_RESET_INTERVAL) {
-            for (int i = 0; i < MEMORY_SIZE; i++) {
-                referenced[i] = 0;
-            }
-            resetCounter = 0;
-        }
-
-        // Imprime estado da memória
-        if (print) {
-            printf("Tabela de Páginas (NRU):\n");
-            printf("--------------------------------\n");
-            printf("| Page | Ref | Mod |\n");
-            for (int i = 0; i < MEMORY_SIZE; i++) {
-                if (memory[i] != -1) {
-                    printf("|  %2d  |  %d  |  %d  |\n", memory[i], referenced[i], modified[i]);
-                } else {
-                    printf("|  --   |  -  |  -  |\n");
-                }
-            }
-            printf("--------------------------------\n");
-        }
-    }
-
-    fclose(file);
-    return pageFaults;
-}
-
-int subs_2nCh(const char *path) {
-    int memory[MEMORY_SIZE];
-    int reference[MEMORY_SIZE];
-    int modified[MEMORY_SIZE];
-    int pointer = 0;
-    int pageFaults = 0;
-
-    // Inicializa memória e bits auxiliares
-    for (int i = 0; i < MEMORY_SIZE; i++) {
-        memory[i] = -1;
-        reference[i] = 0;
-        modified[i] = 0;
-    }
-
-    FILE *file = fopen(path, "r");
-    if (!file) {
-        perror("Error opening access log");
-        return -1;
-    }
-
-    int pageNum;
-    char accessType;
-
-    while (fscanf(file, "%d %c", &pageNum, &accessType) == 2) {
-        int found = 0;
-
-        // Verifica se a página está na memória
-        for (int i = 0; i < MEMORY_SIZE; i++) {
-            if (memory[i] == pageNum) {
-                found = 1;
-                reference[i] = 1; // Atualiza o bit de referência
-                if (accessType == 'W') {
-                    modified[i] = 1; // Atualiza o bit de modificação
-                }
-                break;
-            }
-        }
-
-        if (!found) {
-            pageFaults++;
-
-            // Substituição usando Second Chance
-            while (reference[pointer] == 1) {
-                reference[pointer] = 0; // Dá segunda chance, reseta o bit de referência
-                pointer = (pointer + 1) % MEMORY_SIZE;
-            }
-
-            // Substitui a página
-            if (memory[pointer] != -1) {
-                if (modified[pointer] == 1) {
-                    printf("Dirty page replaced: %d\n", memory[pointer]);
-                } else {
-                    printf("Clean page replaced: %d\n", memory[pointer]);
-                }
-            }
-            memory[pointer] = pageNum;
-            modified[pointer] = (accessType == 'W') ? 1 : 0;
-            reference[pointer] = 1;
-
-            // Avança o ponteiro circular
-            pointer = (pointer + 1) % MEMORY_SIZE;
-        }
-
-        // Imprime estado da memória
-        printf("Tabela de Páginas (Second Chance):\n");
-        printf("--------------------------------\n");
-        printf("| Page | Ref | Mod |\n");
-        for (int i = 0; i < MEMORY_SIZE; i++) {
-            if (memory[i] != -1) {
-                printf("|  %2d  |  %d  |  %d  |\n", memory[i], reference[i], modified[i]);
-            } else {
-                printf("|  --   |  -  |  -  |\n");
-            }
-        }
-        printf("--------------------------------\n");
-    }
-
-    fclose(file);
-    return pageFaults;
-}
-
-int subs_WS(const char *path, int k) {
-    int memory[MEMORY_SIZE];
-    int modified[NUM_PAGES];
-    int referenced[NUM_PAGES];
-    int workingSetQueue[MEMORY_SIZE];
-    int workingSetSize = 0;
-    int pageFaults = 0;
-
-    // Inicializa a memória e bits auxiliares
-    for (int i = 0; i < MEMORY_SIZE; i++) {
-        memory[i] = -1;
-        workingSetQueue[i] = -1;
-    }
-    for (int i = 0; i < NUM_PAGES; i++) {
-        modified[i] = 0;
-        referenced[i] = 0;
-    }
-
-    FILE *file = fopen(path, "r");
-    if (!file) {
-        perror("Error opening access log");
-        return -1;
-    }
-
-    int pageNum;
-    char accessType;
-
-    while (fscanf(file, "%d %c", &pageNum, &accessType) == 2) {
-        int found = 0;
-
-        // Verifica se a página está no conjunto de trabalho
-        for (int i = 0; i < workingSetSize; i++) {
-            if (workingSetQueue[i] == pageNum) {
-                found = 1;
-
-                // Move a página para o final do conjunto de trabalho
-                for (int j = i; j < workingSetSize - 1; j++) {
-                    workingSetQueue[j] = workingSetQueue[j + 1];
-                }
-                workingSetQueue[workingSetSize - 1] = pageNum;
-
-                // Atualiza os bits
-                referenced[pageNum] = 1;
-                if (accessType == 'W') {
-                    modified[pageNum] = 1;
-                }
-                break;
-            }
-        }
-
-        if (!found) {
-            pageFaults++;
-
-            // Verifica se há espaço no conjunto de trabalho
-            if (workingSetSize < k && workingSetSize < MEMORY_SIZE) {
-                for (int i = 0; i < MEMORY_SIZE; i++) {
-                    if (memory[i] == -1) {
-                        memory[i] = pageNum;
-                        modified[pageNum] = (accessType == 'W') ? 1 : 0;
-                        referenced[pageNum] = 1;
-                        workingSetQueue[workingSetSize++] = pageNum;
-                        break;
-                    }
-                }
-            } else {
-                // Substitui a página mais antiga
-                int pageToRemove = workingSetQueue[0];
-
-                for (int i = 0; i < MEMORY_SIZE; i++) {
-                    if (memory[i] == pageToRemove) {
-                        if (modified[pageToRemove] == 1) {
-                            printf("Dirty page replaced: %d\n", pageToRemove);
-                        } else {
-                            printf("Clean page replaced: %d\n", pageToRemove);
-                        }
-                        memory[i] = pageNum;
-                        modified[pageNum] = (accessType == 'W') ? 1 : 0;
-                        referenced[pageNum] = 1;
-                        break;
-                    }
-                }
-
-                // Remove do conjunto de trabalho
-                for (int i = 0; i < workingSetSize - 1; i++) {
-                    workingSetQueue[i] = workingSetQueue[i + 1];
-                }
-                workingSetQueue[workingSetSize - 1] = pageNum;
-            }
-        }
-
-        // Imprime estado da memória
-        printf("Tabela de Páginas (Working Set, k=%d):\n", k);
-        printf("--------------------------------\n");
-        printf("| Page | Ref | Mod |\n");
-        for (int i = 0; i < MEMORY_SIZE; i++) {
-            if (memory[i] != -1) {
-                printf("|  %2d  |  %d  |  %d  |\n", memory[i], referenced[memory[i]], modified[memory[i]]);
-            } else {
-                printf("|  --   |  -  |  -  |\n");
-            }
-        }
-        printf("--------------------------------\n");
-    }
-
-    fclose(file);
-    return pageFaults;
-}
+/************************************************************************************************/
+/* Working Set (K) */
+int subs_WS(int set, int memorySeg)
+{
+    return -1;
+};
+/************************************************************************************************/

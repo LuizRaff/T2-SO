@@ -39,17 +39,12 @@ int main(int argc, char **argv)
     int pageFaultsWS[NUM_ROUNDS];
 
     // Paths for access logs files
-    char *processesPaths[NUM_PROCESS] = {"AccessesLogs/P1_AccessesLog.txt",
-                                         "AccessesLogs/P2_AccessesLog.txt",
-                                         "AccessesLogs/P3_AccessesLog.txt",
-                                         "AccessesLogs/P4_AccessesLog.txt"};
+    char *processesPaths[NUM_PROCESS] = {"T2-SO/Final-Work/AccessesLogs/P1_AccessesLog.txt",
+                                         "T2-SO/Final-Work/AccessesLogs/P2_AccessesLog.txt",
+                                         "T2-SO/Final-Work/AccessesLogs/P3_AccessesLog.txt",
+                                         "T2-SO/Final-Work/AccessesLogs/P4_AccessesLog.txt"};
 
     char *arq_teste = "Test_AccessesLog.txt";
-
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <algorithm> [parameters]\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }
 
     // Running page replacement algorithms
     printf("Gerando novos logs de accesso...\n");
