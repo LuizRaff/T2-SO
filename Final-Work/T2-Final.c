@@ -31,10 +31,18 @@ typedef struct
     char accessType;
 } SharedData;
 
+typedef struct
+{
+    int memoryLRU[MEMORY_SIZE];
+    int size;
+    int reference_bitsLRU[MEMORY_SIZE];
+    int modified_bitsLRU[MEMORY_SIZE];
+} LRU_Fila;
+
 /* Funções dos algoritmos de substituição de página */
 void subs_NRU(int pageNum, char accessType);         // Not Recently Used (NRU)
 void subs_2nCh(int pageNum, char accessType);        // Second Chance
-void subs_LRU(int pageNum, char accessType);         // Aging (LRU)
+void subs_LRU(LRU_Fila* lru_Fila, int* pageFault, int pageNum, char accessType);         // Aging (LRU)
 void subs_WS(int set, int pageNum, char accessType); // Working Set (k)
 
 /* Gerenciador de Memória Virtual */
@@ -291,9 +299,145 @@ int main(int argc, char **argv)
     return 0;
 }
 
-/* Função do Gerenciador de Memória Virtual */
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/*              LRU - FUNCTIONS                 */
+// Initializes the queue
+void inicializarFilaLRU(LRU_Fila *fila)
+{
+    fila->size = 0;
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        fila->memoryLRU[i] = -1;
+        fila->reference_bitsLRU[i] = 0;
+        fila->modified_bitsLRU[i] = 0;
+    }
+}
+
+// Checks if a value is in the queue
+int contemLRU(LRU_Fila *fila, int valor)
+{
+    for (int i = 0; i < fila->size; i++)
+    {
+        if (fila->memoryLRU[i] == valor)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Returns the index of the value in the queue, or -1 if not found
+int indexOfLRU(LRU_Fila *fila, int valor)
+{
+    for (int i = 0; i < fila->size; i++)
+    {
+        if (fila->memoryLRU[i] == valor)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Removes a specific value from the queue
+void removerValorLRU(LRU_Fila *fila, int valor)
+{
+    int i, j;
+    for (i = 0; i < fila->size; i++)
+    {
+        if (fila->memoryLRU[i] == valor)
+        {
+            // Remove the value by shifting elements
+            for (j = i; j < fila->size - 1; j++)
+            {
+                fila->memoryLRU[j] = fila->memoryLRU[j + 1];
+                fila->modified_bitsLRU[j] = fila->modified_bitsLRU[j + 1];
+                fila->reference_bitsLRU[j] = fila->reference_bitsLRU[j + 1];
+            }
+            fila->size--;
+            return;
+        }
+    }
+}
+
+// Adds a value to the queue
+void adicionarLRU(LRU_Fila *fila, int valor, int *pageFault, int pageModified, int pageReferenced)
+{
+    if (contemLRU(fila, valor))
+    {
+        // Remove the value if it already exists
+        removerValorLRU(fila, valor);
+    }
+    else
+    {
+        // Page fault occurs
+        (*pageFault)++;
+        // If the queue is full, remove the least recently used page
+        if (fila->size == MEMORY_SIZE)
+        {
+            printf("Page fault: %d\n", valor + 1);
+            printf("Page to remove: %d\n", fila->memoryLRU[0] + 1);
+            if (fila->modified_bitsLRU[0] == 1)
+            {
+                printf("Dirty page replaced and written back to swap area.\n");
+            }
+            else
+            {
+                printf("Clean page replaced.\n");
+            }
+            // Shift all elements to the left to remove the oldest page
+            for (int i = 0; i < MEMORY_SIZE - 1; i++)
+            {
+                fila->memoryLRU[i] = fila->memoryLRU[i + 1];
+                fila->modified_bitsLRU[i] = fila->modified_bitsLRU[i + 1];
+                fila->reference_bitsLRU[i] = fila->reference_bitsLRU[i + 1];
+            }
+            fila->size--;
+        }
+    }
+
+    // Add the value to the end of the queue
+    fila->memoryLRU[fila->size] = valor;
+    fila->modified_bitsLRU[fila->size] = pageModified;
+    fila->reference_bitsLRU[fila->size] = pageReferenced;
+    fila->size++;
+}
+
+void imprimiTabelaProcessosLRU(LRU_Fila *fila)
+{
+    printf("Tabela de Processos: \n");
+    printf("----------------------------\n");
+    printf("| Page | Frame | Ref | Mod |\n");
+    for (int i = 0; i < NUM_PAGES; i++)
+    {
+        int index = indexOfLRU(fila, i);
+        if (index != -1)
+        {
+            printf("|  %2d  |   %2d  |  %d  |  %d  |\n", i + 1, index + 1, fila->reference_bitsLRU[index], fila->modified_bitsLRU[index]);
+        }
+        else
+        {
+            printf("|  %2d  | ----- | --- | --- |\n", i + 1);
+        }
+    }
+    printf("----------------------------\n");
+}
+
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/* GMV - FUNCTION */
 void gmv(int algorithm, int set, int printFlag)
 {
+    int pageFaults = 0;
     int shm_fd;
     SharedData *shared_data;
     sem_t *sem;
@@ -323,6 +467,54 @@ void gmv(int algorithm, int set, int printFlag)
         exit(EXIT_FAILURE);
     }
 
+    // Memory Block Declaration LRU
+    LRU_Fila lru_Fila;
+    inicializarFilaLRU(&lru_Fila);
+
+    // Memory Block Declaration NRU
+    int memoryNRU[MEMORY_SIZE];
+    int reference_bitsNRU[MEMORY_SIZE];
+    int modified_bitsNRU[MEMORY_SIZE];
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        memoryNRU[i] = -1;
+        reference_bitsNRU[i] = 0;
+        modified_bitsNRU[i] = 0;
+    }
+
+    // Memory Block Declaration 2nCh
+    int memory2NCH[MEMORY_SIZE];
+    int reference_bits2NCH[MEMORY_SIZE];
+    int modified_bits2NCH[MEMORY_SIZE];
+    int circular_queue_pointer = 0;
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        memory2NCH[i] = -1;
+        reference_bits2NCH[i] = 0;
+        modified_bits2NCH[i] = 0;
+    }
+
+    // Memory Block Declaration WS
+    int k = set;
+    int memoryWS[NUM_PROCESS][MEMORY_SIZE];
+    int modified_bitsWS[NUM_PROCESS][NUM_PAGES];
+    int reference_bitsWS[NUM_PROCESS][NUM_PAGES];
+    int working_set_queue[NUM_PROCESS][MEMORY_SIZE];
+    int working_set_size[NUM_PROCESS] = {0};
+    for (int p = 0; p < NUM_PROCESS; p++)
+    {
+        for (int i = 0; i < MEMORY_SIZE; i++)
+        {
+            memoryWS[p][i] = -1;
+            working_set_queue[p][i] = -1;
+        }
+        for (int i = 0; i < NUM_PAGES; i++)
+        {
+            modified_bitsWS[p][i] = 0;
+            reference_bitsWS[p][i] = 0;
+        }
+    }
+
     printf("GMV iniciado\n");
 
     while (1)
@@ -339,7 +531,7 @@ void gmv(int algorithm, int set, int printFlag)
             // Processa os dados
             if (printFlag)
             {
-                printf("Acesso: Página %d, Tipo %c\n", pageNum, accessType);
+                printf("Acesso: Página %d, Tipo %c\n", pageNum + 1, accessType);
             }
 
             // Chama o algoritmo de substituição de página apropriado
@@ -352,7 +544,11 @@ void gmv(int algorithm, int set, int printFlag)
                 subs_2nCh(pageNum, accessType);
                 break;
             case 2:
-                subs_LRU(pageNum, accessType);
+                subs_LRU(&lru_Fila, &pageFaults, pageNum, accessType);
+                if(printFlag)
+                {
+                    imprimiTabelaProcessosLRU(&lru_Fila);
+                }
                 break;
             case 3:
                 subs_WS(set, pageNum, accessType);
@@ -456,10 +652,14 @@ void subs_2nCh(int pageNum, char accessType)
     // Aqui você deve implementar a lógica do algoritmo Second Chance
 }
 
-void subs_LRU(int pageNum, char accessType)
+void subs_LRU(LRU_Fila* lru_Fila, int* pageFault, int pageNum, char accessType)
 {
     // Implementação do algoritmo LRU (Aging)
     // Aqui você deve implementar a lógica do algoritmo LRU
+
+    int pageReferenced = (accessType == 'R') ? 1 : 0;
+    int pageModified = (accessType == 'W') ? 1 : 0;
+    adicionarLRU(lru_Fila, pageNum, pageFault, pageModified, pageReferenced);
 }
 
 void subs_WS(int set, int pageNum, char accessType)

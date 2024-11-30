@@ -1,7 +1,12 @@
 #include <stdio.h>
 
-void oi(int* a){
+
+void oi2(int* a){
     *a +=1;
+}
+
+void oi(int* a){
+    oi2(&a);
 }
 
 int main(void){
