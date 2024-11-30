@@ -15,7 +15,7 @@
 #define NUM_PAGES 32
 #define NUM_ACCESS 120
 #define MEMORY_SIZE 16
-#define NUM_ROUNDS 150
+#define NUM_ROUNDS 50
 #define SHM_NAME "/my_shared_memory"
 #define SEM_NAME "/my_semaphore"
 #define SHM_SIZE sizeof(SharedData)
@@ -40,10 +40,10 @@ typedef struct
 } LRU_Fila;
 
 /* Funções dos algoritmos de substituição de página */
-void subs_NRU(int pageNum, char accessType);         // Not Recently Used (NRU)
-void subs_2nCh(int pageNum, char accessType);        // Second Chance
-void subs_LRU(LRU_Fila* lru_Fila, int* pageFault, int pageNum, char accessType);         // Aging (LRU)
-void subs_WS(int set, int pageNum, char accessType); // Working Set (k)
+void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFault, int pageNum, char accessType);   // Not Recently Used (NRU)
+void subs_2nCh(int pageNum, char accessType);                                                                       // Second Chance
+void subs_LRU(LRU_Fila *lru_Fila, int *pageFault, int pageNum, char accessType);                                    // Aging (LRU)
+void subs_WS(int set, int pageNum, char accessType);                                                                // Working Set (k)
 
 /* Gerenciador de Memória Virtual */
 void gmv(int algorithm, int set, int printFlag);
@@ -305,7 +305,7 @@ int main(int argc, char **argv)
 /************************************************************************************************/
 /************************************************************************************************/
 /************************************************************************************************/
-/*              LRU - FUNCTIONS                 */
+/* LRU - FUNCTIONS */
 // Initializes the queue
 void inicializarFilaLRU(LRU_Fila *fila)
 {
@@ -434,6 +434,88 @@ void imprimiTabelaProcessosLRU(LRU_Fila *fila)
 /************************************************************************************************/
 /************************************************************************************************/
 /************************************************************************************************/
+/* NRU - FUNCTION */
+int NRU_whichPageToRemove(int *memory, int *pageModified, int *pageReferenced, int pageNum)
+{
+    /*
+    Priorities of page classes in the NRU algorithm:
+                                                 | M | R |
+        Case 0: not modified, not referenced     | 0 | 0 |
+        Case 1: not modified, referenced         | 0 | 1 |
+        Case 2: modified, not referenced         | 1 | 0 |
+        Case 3: modified, referenced             | 1 | 1 |
+    */
+
+    // Look for a free space in memory
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        if (memory[i] == -1)
+        {
+            return i;
+        }
+    }
+
+    // Identify the page to be removed based on priority cases
+    for (int caso = 0; caso < 4; caso++)
+    {
+        int candidates[MEMORY_SIZE];
+        int count = 0;
+        for (int i = 0; i < MEMORY_SIZE; i++)
+        {
+            int whichCase = (pageModified[i] << 1) | pageReferenced[i];
+            if (whichCase == caso)
+            {
+                candidates[count++] = i;
+            }
+        }
+        if (count > 0)
+        {
+            // Select a random index among candidates
+            int randIndex = rand() % count;
+            return candidates[randIndex];
+        }
+    }
+
+    return -1;
+}
+// Returns the index of the value in the queue, or -1 if not found
+int indexOfNRU(int *memory, int valor)
+{
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        if (memory[i] == valor)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+void imprimiTabelaProcessosNRU(int *memory, int *pageReferenced, int *pageModified)
+{
+    printf("Tabela de Processos: \n");
+    printf("----------------------------\n");
+    printf("| Page | Frame | Ref | Mod |\n");
+    for (int i = 0; i < NUM_PAGES; i++)
+    {
+        int index = indexOfNRU(memory, i);
+        if (index != -1)
+        {
+            printf("|  %2d  |   %2d  |  %d  |  %d  |\n", i + 1, index + 1, pageReferenced[index], pageModified[index]);
+        }
+        else
+        {
+            printf("|  %2d  | ----- | --- | --- |\n", i + 1);
+        }
+    }
+    printf("----------------------------\n");
+}
+
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
 /* GMV - FUNCTION */
 void gmv(int algorithm, int set, int printFlag)
 {
@@ -538,14 +620,18 @@ void gmv(int algorithm, int set, int printFlag)
             switch (algorithm)
             {
             case 0:
-                subs_NRU(pageNum, accessType);
+                subs_NRU(memoryNRU, reference_bitsNRU, modified_bitsNRU, &pageFaults, pageNum, accessType);
+                if (printFlag)
+                {
+                    imprimiTabelaProcessosNRU(memoryNRU, reference_bitsNRU, modified_bitsNRU);
+                }
                 break;
             case 1:
                 subs_2nCh(pageNum, accessType);
                 break;
             case 2:
                 subs_LRU(&lru_Fila, &pageFaults, pageNum, accessType);
-                if(printFlag)
+                if (printFlag)
                 {
                     imprimiTabelaProcessosLRU(&lru_Fila);
                 }
@@ -573,7 +659,8 @@ void gmv(int algorithm, int set, int printFlag)
     // Limpa recursos
     sem_close(sem);
     munmap(shared_data, SHM_SIZE);
-    printf("Filho terminou\n");
+    printf("GMV terminou\n");
+    printf("Número de page faults: %d\n", pageFaults);
 }
 
 /* Função de geração dos logs de acesso */
@@ -637,13 +724,64 @@ int accessLogsGen(char **paths, int process)
     return 0;
 }
 
+
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
 /* Implementação das funções dos algoritmos */
 /* Estas funções precisam ser implementadas de acordo com a lógica de cada algoritmo */
 
-void subs_NRU(int pageNum, char accessType)
+void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFault, int pageNum, char accessType)
 {
     // Implementação do algoritmo NRU
     // Aqui você deve implementar a lógica do algoritmo NRU
+    // Check if the page is already in memory
+    int found = 0;
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        if (memory[i] == pageNum)
+        {
+            // Page hit
+            if (accessType == 'R')
+            {
+                pageReferenced[i] = 1;
+            }
+            if (accessType == 'W')
+            {
+                pageModified[i] = 1;
+            }
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found)
+    {
+        // Page fault
+        (*pageFault)++;
+        printf("Page fault: %d\n", pageNum + 1);
+
+        // Select the page to be removed
+        int pageToRemove = NRU_whichPageToRemove(memory, pageModified, pageReferenced, pageNum);
+
+        printf("Page to remove: %d\n", memory[pageToRemove] + 1);
+        if (memory[pageToRemove] != -1 && pageModified[pageToRemove] == 1)
+        {
+            printf("Dirty page replaced and written back to swap area.\n");
+        }
+        else
+        {
+            printf("Clean page replaced.\n");
+        }
+
+        // Replace the page in memory and update bits
+        memory[pageToRemove] = pageNum;
+        pageReferenced[pageToRemove] = (accessType == 'R') ? 1 : 0;
+        pageModified[pageToRemove] = (accessType == 'W') ? 1 : 0;
+    }
 }
 
 void subs_2nCh(int pageNum, char accessType)
@@ -652,7 +790,7 @@ void subs_2nCh(int pageNum, char accessType)
     // Aqui você deve implementar a lógica do algoritmo Second Chance
 }
 
-void subs_LRU(LRU_Fila* lru_Fila, int* pageFault, int pageNum, char accessType)
+void subs_LRU(LRU_Fila *lru_Fila, int *pageFault, int pageNum, char accessType)
 {
     // Implementação do algoritmo LRU (Aging)
     // Aqui você deve implementar a lógica do algoritmo LRU
