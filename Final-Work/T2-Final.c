@@ -15,7 +15,7 @@
 #define NUM_PAGES 32
 #define NUM_ACCESS 120
 #define MEMORY_SIZE 16
-#define NUM_ROUNDS 1
+#define NUM_ROUNDS 5
 #define SHM_NAME "/my_shared_memory"
 #define SEM_NAME "/my_semaphore"
 #define SHM_SIZE sizeof(SharedData)
