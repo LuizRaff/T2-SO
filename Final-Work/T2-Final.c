@@ -40,9 +40,10 @@ typedef struct
     int size;
     int reference_bitsLRU[MEMORY_SIZE];
     int modified_bitsLRU[MEMORY_SIZE];
+    int process_bit[MEMORY_SIZE];
 } LRU_Fila;
 
-typedef struct //Frame do working set
+typedef struct // Frame do working set
 {
     int pageNum;
     int processId;
@@ -51,10 +52,10 @@ typedef struct //Frame do working set
 } Frame;
 
 /* Funções dos algoritmos de substituição de página */
-void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFault, int pageNum, char accessType);   // Not Recently Used (NRU)
-void subs_2nCh(int *pageFault, int pageNum, char accessType);                                                                       // Second Chance
-void subs_LRU(LRU_Fila *lru_Fila, int *pageFault, int pageNum, char accessType);                                    // Aging (LRU)
-void subs_WS(int set, int *pageFault, int processID, int pageNum, char accessType);                                                                // Working Set (k)
+void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFault, int *process_Bits, int pageNum, char accessType, int processNum); // Not Recently Used (NRU)
+void subs_2nCh(int *pageFault, int pageNum, char accessType, int processNum);                                                                        // Second Chance
+void subs_LRU(LRU_Fila *lru_Fila, int *pageFault, int pageNum, char accessType, int processNum);                                                     // Aging (LRU)
+void subs_WS(int set, int *pageFault, int processID, int pageNum, char accessType);                                                                  // Working Set (k)
 
 /* Gerenciador de Memória Virtual */
 void gmv(int algorithm, int set, int printFlag);
@@ -66,9 +67,10 @@ int accessLogsGen(char **paths, int process);
 int memory2NCH[MEMORY_SIZE];
 int reference_bits2NCH[MEMORY_SIZE];
 int modified_bits2NCH[MEMORY_SIZE];
+int process_bits2NCH[MEMORY_SIZE];
 int circular_queue_pointer;
 
-//Variáveis globais para o algoritmo de Working Set
+// Variáveis globais para o algoritmo de Working Set
 Frame physicalMemory[MEMORY_SIZE];
 int workingSet[NUM_PROCESS][MAX_WORKING_SET_SIZE];
 int workingSetSize[NUM_PROCESS];
@@ -157,7 +159,7 @@ int main(int argc, char **argv)
     }
 
     srand(time(NULL) ^ getpid());
-    
+
     int shm_fd;
     SharedData *shared_data;
     sem_t *sem;
@@ -338,6 +340,7 @@ void inicializarFilaLRU(LRU_Fila *fila)
     for (int i = 0; i < MEMORY_SIZE; i++)
     {
         fila->memoryLRU[i] = -1;
+        fila->process_bit[i] = -1;
         fila->reference_bitsLRU[i] = 0;
         fila->modified_bitsLRU[i] = 0;
     }
@@ -383,6 +386,7 @@ void removerValorLRU(LRU_Fila *fila, int valor)
                 fila->memoryLRU[j] = fila->memoryLRU[j + 1];
                 fila->modified_bitsLRU[j] = fila->modified_bitsLRU[j + 1];
                 fila->reference_bitsLRU[j] = fila->reference_bitsLRU[j + 1];
+                fila->process_bit[j] = fila->process_bit[j + 1];
             }
             fila->size--;
             return;
@@ -391,10 +395,15 @@ void removerValorLRU(LRU_Fila *fila, int valor)
 }
 
 // Adds a value to the queue
-void adicionarLRU(LRU_Fila *fila, int valor, int *pageFault, int pageModified, int pageReferenced)
+void adicionarLRU(LRU_Fila *fila, int valor, int *pageFault, int pageModified, int pageReferenced, int processNum)
 {
     if (contemLRU(fila, valor))
     {
+        if (fila->process_bit[indexOfLRU(&fila, valor)] != processNum)
+        {
+            printf("Page fault: %d\n", valor + 1);
+            (*pageFault)++;
+        }
         // Remove the value if it already exists
         removerValorLRU(fila, valor);
     }
@@ -415,12 +424,14 @@ void adicionarLRU(LRU_Fila *fila, int valor, int *pageFault, int pageModified, i
             {
                 printf("Clean page replaced.\n");
             }
+
             // Shift all elements to the left to remove the oldest page
             for (int i = 0; i < MEMORY_SIZE - 1; i++)
             {
                 fila->memoryLRU[i] = fila->memoryLRU[i + 1];
                 fila->modified_bitsLRU[i] = fila->modified_bitsLRU[i + 1];
                 fila->reference_bitsLRU[i] = fila->reference_bitsLRU[i + 1];
+                fila->process_bit[i] = fila->process_bit[i + 1];
             }
             fila->size--;
         }
@@ -430,6 +441,7 @@ void adicionarLRU(LRU_Fila *fila, int valor, int *pageFault, int pageModified, i
     fila->memoryLRU[fila->size] = valor;
     fila->modified_bitsLRU[fila->size] = pageModified;
     fila->reference_bitsLRU[fila->size] = pageReferenced;
+    fila->process_bit[fila->size] = processNum;
     fila->size++;
 }
 
@@ -437,17 +449,17 @@ void imprimiTabelaProcessosLRU(LRU_Fila *fila)
 {
     printf("Tabela de Processos: \n");
     printf("----------------------------\n");
-    printf("| Page | Frame | Ref | Mod |\n");
+    printf("| Page | Frame | Ref | Mod | Pro |\n");
     for (int i = 0; i < NUM_PAGES; i++)
     {
         int index = indexOfLRU(fila, i);
         if (index != -1)
         {
-            printf("|  %2d  |   %2d  |  %d  |  %d  |\n", i + 1, index + 1, fila->reference_bitsLRU[index], fila->modified_bitsLRU[index]);
+            printf("|  %2d  |   %2d  |  %d  |  %d  |  %d  |\n", i + 1, index + 1, fila->reference_bitsLRU[index], fila->modified_bitsLRU[index], fila->process_bit[index] + 1);
         }
         else
         {
-            printf("|  %2d  | ----- | --- | --- |\n", i + 1);
+            printf("|  %2d  | ----- | --- | --- | --- |\n", i + 1);
         }
     }
     printf("----------------------------\n");
@@ -515,21 +527,21 @@ int indexOfNRU(int *memory, int valor)
     }
     return -1;
 }
-void imprimiTabelaProcessosNRU(int *memory, int *pageReferenced, int *pageModified)
+void imprimiTabelaProcessosNRU(int *memory, int *pageReferenced, int *pageModified, int *processReference)
 {
     printf("Tabela de Processos: \n");
     printf("----------------------------\n");
-    printf("| Page | Frame | Ref | Mod |\n");
+    printf("| Page | Frame | Ref | Mod | Pro |\n");
     for (int i = 0; i < NUM_PAGES; i++)
     {
         int index = indexOfNRU(memory, i);
         if (index != -1)
         {
-            printf("|  %2d  |   %2d  |  %d  |  %d  |\n", i + 1, index + 1, pageReferenced[index], pageModified[index]);
+            printf("|  %2d  |   %2d  |  %d  |  %d  |  %d  |\n", i + 1, index + 1, pageReferenced[index], pageModified[index], processReference[index] + 1);
         }
         else
         {
-            printf("|  %2d  | ----- | --- | --- |\n", i + 1);
+            printf("|  %2d  | ----- | --- | --- | --- |\n", i + 1);
         }
     }
     printf("----------------------------\n");
@@ -603,7 +615,6 @@ int accessLogsGen(char **paths, int process)
     return 0;
 }
 
-
 /************************************************************************************************/
 /************************************************************************************************/
 /************************************************************************************************/
@@ -613,7 +624,7 @@ int accessLogsGen(char **paths, int process)
 /* Implementação das funções dos algoritmos */
 /* Estas funções precisam ser implementadas de acordo com a lógica de cada algoritmo */
 
-void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFault, int pageNum, char accessType)
+void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFault, int *process_Bits, int pageNum, char accessType, int processNum)
 {
     // Implementação do algoritmo NRU
     // Aqui você deve implementar a lógica do algoritmo NRU
@@ -633,6 +644,15 @@ void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFaul
                 pageModified[i] = 1;
             }
             found = 1;
+
+            if (process_Bits[i] != processNum)
+            {
+                printf("Page fault: %d\n", pageNum + 1);
+                (*pageFault)++;
+                process_Bits[i] = processNum;
+                pageReferenced[i] = (accessType == 'R') ? 1 : 0;
+                pageModified[i] = (accessType == 'W') ? 1 : 0;
+            }
             break;
         }
     }
@@ -660,6 +680,7 @@ void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFaul
         memory[pageToRemove] = pageNum;
         pageReferenced[pageToRemove] = (accessType == 'R') ? 1 : 0;
         pageModified[pageToRemove] = (accessType == 'W') ? 1 : 0;
+        process_Bits[pageToRemove] = processNum;
     }
 }
 
@@ -670,14 +691,14 @@ void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFaul
 /************************************************************************************************/
 /************************************************************************************************/
 
-void subs_LRU(LRU_Fila *lru_Fila, int *pageFault, int pageNum, char accessType)
+void subs_LRU(LRU_Fila *lru_Fila, int *pageFault, int pageNum, char accessType, int processNum)
 {
     // Implementação do algoritmo LRU (Aging)
     // Aqui você deve implementar a lógica do algoritmo LRU
 
     int pageReferenced = (accessType == 'R') ? 1 : 0;
     int pageModified = (accessType == 'W') ? 1 : 0;
-    adicionarLRU(lru_Fila, pageNum, pageFault, pageModified, pageReferenced);
+    adicionarLRU(lru_Fila, pageNum, pageFault, pageModified, pageReferenced, processNum);
 }
 
 /************************************************************************************************/
@@ -691,22 +712,22 @@ void imprimiTabelaProcessos2nCh()
 {
     printf("Tabela de Processos (Second Chance): \n");
     printf("-------------------------------------\n");
-    printf("| Frame | Page | Ref | Mod |\n");
+    printf("| Frame | Page | Ref | Mod | Pro |\n");
     for (int i = 0; i < MEMORY_SIZE; i++)
     {
         if (memory2NCH[i] != -1)
         {
-            printf("|   %2d  |  %2d  |  %d  |  %d  |\n", i + 1, memory2NCH[i] + 1, reference_bits2NCH[i], modified_bits2NCH[i]);
+            printf("|   %2d  |  %2d  |  %d  |  %d  |  %d  |\n", i + 1, memory2NCH[i] + 1, reference_bits2NCH[i], modified_bits2NCH[i], process_bits2NCH[i] + 1);
         }
         else
         {
-            printf("|   %2d  | ----- | --- | --- |\n", i + 1);
+            printf("|   %2d  | ----- | --- | --- | --- |\n", i + 1);
         }
     }
     printf("-------------------------------------\n");
 }
 
-void subs_2nCh(int *pageFault, int pageNum, char accessType)
+void subs_2nCh(int *pageFault, int pageNum, char accessType, int processNum)
 {
     // Implementação do algoritmo Second Chance
     // First, check if the pageNum is already in memory
@@ -722,6 +743,13 @@ void subs_2nCh(int *pageFault, int pageNum, char accessType)
             if (accessType == 'W')
             {
                 modified_bits2NCH[i] = 1;
+            }
+
+            if (process_bits2NCH[i] != processNum)
+            {
+                printf("Page fault: %d\n", pageNum + 1);
+                (*pageFault)++;
+                process_bits2NCH[i] = processNum;
             }
             found = 1;
             break;
@@ -1102,11 +1130,13 @@ void gmv(int algorithm, int set, int printFlag)
     int memoryNRU[MEMORY_SIZE];
     int reference_bitsNRU[MEMORY_SIZE];
     int modified_bitsNRU[MEMORY_SIZE];
+    int process_bitsNRU[MEMORY_SIZE];
     for (int i = 0; i < MEMORY_SIZE; i++)
     {
         memoryNRU[i] = -1;
         reference_bitsNRU[i] = 0;
         modified_bitsNRU[i] = 0;
+        process_bitsNRU[i] = -1;
     }
 
     // Memory Block Declaration 2nCh
@@ -1161,21 +1191,21 @@ void gmv(int algorithm, int set, int printFlag)
             switch (algorithm)
             {
             case 0:
-                subs_NRU(memoryNRU, reference_bitsNRU, modified_bitsNRU, &pageFaults, pageNum, accessType);
+                subs_NRU(memoryNRU, reference_bitsNRU, modified_bitsNRU, &pageFaults, process_bitsNRU, pageNum, accessType, processID);
                 if (printFlag)
                 {
-                    imprimiTabelaProcessosNRU(memoryNRU, reference_bitsNRU, modified_bitsNRU);
+                    imprimiTabelaProcessosNRU(memoryNRU, reference_bitsNRU, modified_bitsNRU, process_bitsNRU);
                 }
                 break;
             case 1:
-                subs_2nCh(&pageFaults, pageNum, accessType);
+                subs_2nCh(&pageFaults, pageNum, accessType, processID);
                 if (printFlag)
                 {
                     imprimiTabelaProcessos2nCh(); // Call the function to print the page table
                 }
                 break;
             case 2:
-                subs_LRU(&lru_Fila, &pageFaults, pageNum, accessType);
+                subs_LRU(&lru_Fila, &pageFaults, pageNum, accessType, processID);
                 if (printFlag)
                 {
                     imprimiTabelaProcessosLRU(&lru_Fila);
