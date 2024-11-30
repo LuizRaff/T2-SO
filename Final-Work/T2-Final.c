@@ -23,13 +23,15 @@
 #define RANDOM_PAGE() (rand() % (NUM_PAGES))
 #define RANDOM_ACCESS() (rand() % 2)
 
+#define MAX_WORKING_SET_SIZE NUM_PAGES
+
 /* Estrutura para os dados compartilhados */
 typedef struct
 {
     int flag;
     int pageNum;
     char accessType;
-    int process
+    int processID;
 } SharedData;
 
 typedef struct
@@ -40,17 +42,37 @@ typedef struct
     int modified_bitsLRU[MEMORY_SIZE];
 } LRU_Fila;
 
+typedef struct //Frame do working set
+{
+    int pageNum;
+    int processId;
+    int referenceBit;
+    int modifiedBit;
+} Frame;
+
 /* Funções dos algoritmos de substituição de página */
 void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFault, int pageNum, char accessType);   // Not Recently Used (NRU)
-void subs_2nCh(int pageNum, char accessType);                                                                       // Second Chance
+void subs_2nCh(int *pageFault, int pageNum, char accessType);                                                                       // Second Chance
 void subs_LRU(LRU_Fila *lru_Fila, int *pageFault, int pageNum, char accessType);                                    // Aging (LRU)
-void subs_WS(int set, int pageNum, char accessType);                                                                // Working Set (k)
+void subs_WS(int set, int *pageFault, int processID, int pageNum, char accessType);                                                                // Working Set (k)
 
 /* Gerenciador de Memória Virtual */
 void gmv(int algorithm, int set, int printFlag);
 
 /* Gerador de Logs de Acesso */
 int accessLogsGen(char **paths, int process);
+
+/* Variáveis globais para o algoritmo de Segunda Chance */
+int memory2NCH[MEMORY_SIZE];
+int reference_bits2NCH[MEMORY_SIZE];
+int modified_bits2NCH[MEMORY_SIZE];
+int circular_queue_pointer;
+
+//Variáveis globais para o algoritmo de Working Set
+Frame physicalMemory[MEMORY_SIZE];
+int workingSet[NUM_PROCESS][MAX_WORKING_SET_SIZE];
+int workingSetSize[NUM_PROCESS];
+int framesPerProcess[NUM_PROCESS];
 
 int main(int argc, char **argv)
 {
@@ -264,7 +286,7 @@ int main(int argc, char **argv)
                 {
                     shared_data->pageNum = pageNum;
                     shared_data->accessType = accessType;
-                    shared_data->process = i;
+                    shared_data->processID = i;
                     shared_data->flag = 1; // Dados disponíveis para o filho
                 }
                 sem_post(sem);
@@ -519,153 +541,6 @@ void imprimiTabelaProcessosNRU(int *memory, int *pageReferenced, int *pageModifi
 /************************************************************************************************/
 /************************************************************************************************/
 /************************************************************************************************/
-/* GMV - FUNCTION */
-void gmv(int algorithm, int set, int printFlag)
-{
-    int pageFaults = 0;
-    int shm_fd;
-    SharedData *shared_data;
-    sem_t *sem;
-
-    // Abre a memória compartilhada existente
-    shm_fd = shm_open(SHM_NAME, O_RDWR, 0666);
-    if (shm_fd == -1)
-    {
-        perror("shm_open falhou no filho");
-        exit(EXIT_FAILURE);
-    }
-
-    // Mapeia a memória compartilhada
-    shared_data = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    if (shared_data == MAP_FAILED)
-    {
-        perror("mmap falhou no filho");
-        exit(EXIT_FAILURE);
-    }
-
-    // Abre o semáforo existente
-    sem = sem_open(SEM_NAME, 0);
-    if (sem == SEM_FAILED)
-    {
-        perror("sem_open falhou no filho");
-        munmap(shared_data, SHM_SIZE);
-        exit(EXIT_FAILURE);
-    }
-
-    // Memory Block Declaration LRU
-    LRU_Fila lru_Fila;
-    inicializarFilaLRU(&lru_Fila);
-
-    // Memory Block Declaration NRU
-    int memoryNRU[MEMORY_SIZE];
-    int reference_bitsNRU[MEMORY_SIZE];
-    int modified_bitsNRU[MEMORY_SIZE];
-    for (int i = 0; i < MEMORY_SIZE; i++)
-    {
-        memoryNRU[i] = -1;
-        reference_bitsNRU[i] = 0;
-        modified_bitsNRU[i] = 0;
-    }
-
-    // Memory Block Declaration 2nCh
-    int memory2NCH[MEMORY_SIZE];
-    int reference_bits2NCH[MEMORY_SIZE];
-    int modified_bits2NCH[MEMORY_SIZE];
-    int circular_queue_pointer = 0;
-    for (int i = 0; i < MEMORY_SIZE; i++)
-    {
-        memory2NCH[i] = -1;
-        reference_bits2NCH[i] = 0;
-        modified_bits2NCH[i] = 0;
-    }
-
-    // Memory Block Declaration WS
-    int k = set;
-    int memoryWS[NUM_PROCESS][MEMORY_SIZE];
-    int modified_bitsWS[NUM_PROCESS][NUM_PAGES];
-    int reference_bitsWS[NUM_PROCESS][NUM_PAGES];
-    int working_set_queue[NUM_PROCESS][MEMORY_SIZE];
-    int working_set_size[NUM_PROCESS] = {0};
-    for (int p = 0; p < NUM_PROCESS; p++)
-    {
-        for (int i = 0; i < MEMORY_SIZE; i++)
-        {
-            memoryWS[p][i] = -1;
-            working_set_queue[p][i] = -1;
-        }
-        for (int i = 0; i < NUM_PAGES; i++)
-        {
-            modified_bitsWS[p][i] = 0;
-            reference_bitsWS[p][i] = 0;
-        }
-    }
-
-    printf("GMV iniciado\n");
-
-    while (1)
-    {
-        sem_wait(sem);
-        if (shared_data->flag == 1)
-        {
-            // Dados disponíveis para ler
-            int pageNum = shared_data->pageNum;
-            int process = shared_data->process;
-            char accessType = shared_data->accessType;
-            shared_data->flag = 0; // Buffer está vazio novamente
-            sem_post(sem);
-
-            // Processa os dados
-            if (printFlag)
-            {
-                printf("Processo %d: Página %d, Tipo %c\n", process + 1, pageNum + 1, accessType);
-            }
-
-            // Chama o algoritmo de substituição de página apropriado
-            switch (algorithm)
-            {
-            case 0:
-                subs_NRU(memoryNRU, reference_bitsNRU, modified_bitsNRU, &pageFaults, pageNum, accessType);
-                if (printFlag)
-                {
-                    imprimiTabelaProcessosNRU(memoryNRU, reference_bitsNRU, modified_bitsNRU);
-                }
-                break;
-            case 1:
-                subs_2nCh(pageNum, accessType);
-                break;
-            case 2:
-                subs_LRU(&lru_Fila, &pageFaults, pageNum, accessType);
-                if (printFlag)
-                {
-                    imprimiTabelaProcessosLRU(&lru_Fila);
-                }
-                break;
-            case 3:
-                subs_WS(set, pageNum, accessType);
-                break;
-            default:
-                fprintf(stderr, "Código de algoritmo inválido\n");
-                break;
-            }
-        }
-        else if (shared_data->flag == 2)
-        {
-            sem_post(sem);
-            break; // Sinal para terminar
-        }
-        else
-        {
-            sem_post(sem);
-        }
-        usleep(10000); // Pequena espera para evitar loop rápido demais
-    }
-
-    // Limpa recursos
-    sem_close(sem);
-    munmap(shared_data, SHM_SIZE);
-    printf("GMV terminou\n");
-    printf("Número de page faults: %d\n", pageFaults);
-}
 
 /* Função de geração dos logs de acesso */
 int accessLogsGen(char **paths, int process)
@@ -788,11 +663,12 @@ void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFaul
     }
 }
 
-void subs_2nCh(int pageNum, char accessType)
-{
-    // Implementação do algoritmo Second Chance
-    // Aqui você deve implementar a lógica do algoritmo Second Chance
-}
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
 
 void subs_LRU(LRU_Fila *lru_Fila, int *pageFault, int pageNum, char accessType)
 {
@@ -804,8 +680,534 @@ void subs_LRU(LRU_Fila *lru_Fila, int *pageFault, int pageNum, char accessType)
     adicionarLRU(lru_Fila, pageNum, pageFault, pageModified, pageReferenced);
 }
 
-void subs_WS(int set, int pageNum, char accessType)
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+
+void imprimiTabelaProcessos2nCh()
+{
+    printf("Tabela de Processos (Second Chance): \n");
+    printf("-------------------------------------\n");
+    printf("| Frame | Page | Ref | Mod |\n");
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        if (memory2NCH[i] != -1)
+        {
+            printf("|   %2d  |  %2d  |  %d  |  %d  |\n", i + 1, memory2NCH[i] + 1, reference_bits2NCH[i], modified_bits2NCH[i]);
+        }
+        else
+        {
+            printf("|   %2d  | ----- | --- | --- |\n", i + 1);
+        }
+    }
+    printf("-------------------------------------\n");
+}
+
+void subs_2nCh(int *pageFault, int pageNum, char accessType)
+{
+    // Implementação do algoritmo Second Chance
+    // First, check if the pageNum is already in memory
+    int i, found = 0;
+    for (i = 0; i < MEMORY_SIZE; i++)
+    {
+        if (memory2NCH[i] == pageNum)
+        {
+            // Page hit
+            // Update reference bit
+            reference_bits2NCH[i] = 1;
+            // Update modified bit if necessary
+            if (accessType == 'W')
+            {
+                modified_bits2NCH[i] = 1;
+            }
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found)
+    {
+        // Page fault occurs
+        (*pageFault)++;
+        printf("Page fault: %d\n", pageNum + 1);
+
+        // Try to find a free frame first
+        int frame_index = -1;
+        for (i = 0; i < MEMORY_SIZE; i++)
+        {
+            if (memory2NCH[i] == -1)
+            {
+                frame_index = i;
+                break;
+            }
+        }
+
+        if (frame_index != -1)
+        {
+            // Free frame found
+            memory2NCH[frame_index] = pageNum;
+            reference_bits2NCH[frame_index] = 1;
+            if (accessType == 'W')
+            {
+                modified_bits2NCH[frame_index] = 1;
+            }
+            else
+            {
+                modified_bits2NCH[frame_index] = 0;
+            }
+        }
+        else
+        {
+            // No free frame, need to find a victim using Second Chance algorithm
+            while (1)
+            {
+                // If reference bit is 0, replace this page
+                if (reference_bits2NCH[circular_queue_pointer] == 0)
+                {
+                    // Replace the page
+                    printf("Page to remove: %d\n", memory2NCH[circular_queue_pointer] + 1);
+                    if (modified_bits2NCH[circular_queue_pointer] == 1)
+                    {
+                        printf("Dirty page replaced and written back to swap area.\n");
+                    }
+                    else
+                    {
+                        printf("Clean page replaced.\n");
+                    }
+
+                    // Replace the page
+                    memory2NCH[circular_queue_pointer] = pageNum;
+                    reference_bits2NCH[circular_queue_pointer] = 1;
+                    if (accessType == 'W')
+                    {
+                        modified_bits2NCH[circular_queue_pointer] = 1;
+                    }
+                    else
+                    {
+                        modified_bits2NCH[circular_queue_pointer] = 0;
+                    }
+
+                    // Advance the pointer
+                    circular_queue_pointer = (circular_queue_pointer + 1) % MEMORY_SIZE;
+                    break;
+                }
+                else
+                {
+                    // Give a second chance
+                    reference_bits2NCH[circular_queue_pointer] = 0;
+                    // Advance the pointer
+                    circular_queue_pointer = (circular_queue_pointer + 1) % MEMORY_SIZE;
+                }
+            }
+        }
+    }
+}
+
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+
+void imprimiTabelaProcessosWS()
+{
+    printf("Tabela de Processos (Working Set): \n");
+    printf("-----------------------------------\n");
+    printf("| Frame | Page | Proc | Ref | Mod |\n");
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        if (physicalMemory[i].pageNum != -1)
+        {
+            printf("|   %2d  |  %2d  |  %2d  |  %d  |  %d  |\n", i + 1, physicalMemory[i].pageNum + 1, physicalMemory[i].processId + 1, physicalMemory[i].referenceBit, physicalMemory[i].modifiedBit);
+        }
+        else
+        {
+            printf("|   %2d  | ----- | ---- | --- | --- |\n", i + 1);
+        }
+    }
+    printf("-----------------------------------\n");
+}
+
+void subs_WS(int set, int *pageFault, int processId, int pageNum, char accessType)
 {
     // Implementação do algoritmo Working Set
-    // Aqui você deve implementar a lógica do algoritmo Working Set
+    int i;
+    int foundInWorkingSet = 0;
+    for (i = 0; i < workingSetSize[processId]; i++)
+    {
+        if (workingSet[processId][i] == pageNum)
+        {
+            foundInWorkingSet = 1;
+            break;
+        }
+    }
+
+    if (foundInWorkingSet)
+    {
+        // Page is in working set, check if it's in physical memory
+        int foundInMemory = 0;
+        for (i = 0; i < MEMORY_SIZE; i++)
+        {
+            if (physicalMemory[i].pageNum == pageNum && physicalMemory[i].processId == processId)
+            {
+                // Page hit
+                physicalMemory[i].referenceBit = 1;
+                if (accessType == 'W')
+                {
+                    physicalMemory[i].modifiedBit = 1;
+                }
+                foundInMemory = 1;
+                break;
+            }
+        }
+        if (!foundInMemory)
+        {
+            // Load the page into physical memory
+            // Find a free frame or replace a page from the same process
+            int frameIndex = -1;
+            for (i = 0; i < MEMORY_SIZE; i++)
+            {
+                if (physicalMemory[i].pageNum == -1)
+                {
+                    frameIndex = i;
+                    break;
+                }
+            }
+
+            if (frameIndex != -1)
+            {
+                // Free frame found
+                physicalMemory[frameIndex].pageNum = pageNum;
+                physicalMemory[frameIndex].processId = processId;
+                physicalMemory[frameIndex].referenceBit = 1;
+                physicalMemory[frameIndex].modifiedBit = (accessType == 'W') ? 1 : 0;
+                framesPerProcess[processId]++;
+            }
+            else
+            {
+                // Replace one of our own pages
+                for (i = 0; i < MEMORY_SIZE; i++)
+                {
+                    if (physicalMemory[i].processId == processId)
+                    {
+                        printf("Page to remove: %d (Process %d)\n", physicalMemory[i].pageNum + 1, processId + 1);
+                        if (physicalMemory[i].modifiedBit == 1)
+                        {
+                            printf("Dirty page replaced and written back to swap area.\n");
+                        }
+                        else
+                        {
+                            printf("Clean page replaced.\n");
+                        }
+
+                        physicalMemory[i].pageNum = pageNum;
+                        physicalMemory[i].referenceBit = 1;
+                        physicalMemory[i].modifiedBit = (accessType == 'W') ? 1 : 0;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        // Page not in working set, page fault occurs
+        (*pageFault)++;
+        printf("Page fault: %d (Process %d)\n", pageNum + 1, processId + 1);
+
+        // Add the page to the working set
+        // If working set size exceeds 'k', remove the oldest page
+        if (workingSetSize[processId] >= set)
+        {
+            // Remove the oldest page from the working set
+            int pageToRemove = workingSet[processId][0];
+            // Shift the working set queue
+            for (i = 0; i < workingSetSize[processId] - 1; i++)
+            {
+                workingSet[processId][i] = workingSet[processId][i + 1];
+            }
+            workingSetSize[processId]--;
+
+            // Remove the page from physical memory
+            for (i = 0; i < MEMORY_SIZE; i++)
+            {
+                if (physicalMemory[i].pageNum == pageToRemove && physicalMemory[i].processId == processId)
+                {
+                    printf("Page to remove: %d (Process %d)\n", physicalMemory[i].pageNum + 1, processId + 1);
+                    if (physicalMemory[i].modifiedBit == 1)
+                    {
+                        printf("Dirty page replaced and written back to swap area.\n");
+                    }
+                    else
+                    {
+                        printf("Clean page replaced.\n");
+                    }
+                    physicalMemory[i].pageNum = -1;
+                    physicalMemory[i].processId = -1;
+                    physicalMemory[i].referenceBit = 0;
+                    physicalMemory[i].modifiedBit = 0;
+                    framesPerProcess[processId]--;
+                    break;
+                }
+            }
+        }
+
+        // Add the new page to the working set
+        workingSet[processId][workingSetSize[processId]] = pageNum;
+        workingSetSize[processId]++;
+
+        // Now, load the page into physical memory
+        // Find a free frame
+        int frameIndex = -1;
+        for (i = 0; i < MEMORY_SIZE; i++)
+        {
+            if (physicalMemory[i].pageNum == -1)
+            {
+                frameIndex = i;
+                break;
+            }
+        }
+
+        if (frameIndex != -1)
+        {
+            // Free frame found
+            physicalMemory[frameIndex].pageNum = pageNum;
+            physicalMemory[frameIndex].processId = processId;
+            physicalMemory[frameIndex].referenceBit = 1;
+            physicalMemory[frameIndex].modifiedBit = (accessType == 'W') ? 1 : 0;
+            framesPerProcess[processId]++;
+        }
+        else
+        {
+            // No free frames, need to replace a page
+            if (framesPerProcess[processId] > 0)
+            {
+                // Replace one of our own pages
+                for (i = 0; i < MEMORY_SIZE; i++)
+                {
+                    if (physicalMemory[i].processId == processId)
+                    {
+                        printf("Page to remove: %d (Process %d)\n", physicalMemory[i].pageNum + 1, processId + 1);
+                        if (physicalMemory[i].modifiedBit == 1)
+                        {
+                            printf("Dirty page replaced and written back to swap area.\n");
+                        }
+                        else
+                        {
+                            printf("Clean page replaced.\n");
+                        }
+                        physicalMemory[i].pageNum = pageNum;
+                        physicalMemory[i].referenceBit = 1;
+                        physicalMemory[i].modifiedBit = (accessType == 'W') ? 1 : 0;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                // Steal a frame from another process
+                printf("Process %d has no frames, stealing a frame from another process.\n", processId + 1);
+                for (i = 0; i < MEMORY_SIZE; i++)
+                {
+                    if (physicalMemory[i].processId != processId && physicalMemory[i].processId != -1)
+                    {
+                        int victimProcessId = physicalMemory[i].processId;
+                        printf("Page to remove: %d (Process %d)\n", physicalMemory[i].pageNum + 1, victimProcessId + 1);
+                        if (physicalMemory[i].modifiedBit == 1)
+                        {
+                            printf("Dirty page replaced and written back to swap area.\n");
+                        }
+                        else
+                        {
+                            printf("Clean page replaced.\n");
+                        }
+
+                        // Remove page from victim's working set
+                        int victimPageNum = physicalMemory[i].pageNum;
+                        for (int j = 0; j < workingSetSize[victimProcessId]; j++)
+                        {
+                            if (workingSet[victimProcessId][j] == victimPageNum)
+                            {
+                                for (int k = j; k < workingSetSize[victimProcessId] - 1; k++)
+                                {
+                                    workingSet[victimProcessId][k] = workingSet[victimProcessId][k + 1];
+                                }
+                                workingSetSize[victimProcessId]--;
+                                break;
+                            }
+                        }
+
+                        physicalMemory[i].pageNum = pageNum;
+                        physicalMemory[i].processId = processId;
+                        physicalMemory[i].referenceBit = 1;
+                        physicalMemory[i].modifiedBit = (accessType == 'W') ? 1 : 0;
+                        framesPerProcess[processId]++;
+                        framesPerProcess[victimProcessId]--;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/************************************************************************************************/
+/* GMV - FUNCTION */
+void gmv(int algorithm, int set, int printFlag)
+{
+    int pageFaults = 0;
+    int shm_fd;
+    SharedData *shared_data;
+    sem_t *sem;
+
+    // Abre a memória compartilhada existente
+    shm_fd = shm_open(SHM_NAME, O_RDWR, 0666);
+    if (shm_fd == -1)
+    {
+        perror("shm_open falhou no filho");
+        exit(EXIT_FAILURE);
+    }
+
+    // Mapeia a memória compartilhada
+    shared_data = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (shared_data == MAP_FAILED)
+    {
+        perror("mmap falhou no filho");
+        exit(EXIT_FAILURE);
+    }
+
+    // Abre o semáforo existente
+    sem = sem_open(SEM_NAME, 0);
+    if (sem == SEM_FAILED)
+    {
+        perror("sem_open falhou no filho");
+        munmap(shared_data, SHM_SIZE);
+        exit(EXIT_FAILURE);
+    }
+
+    // Memory Block Declaration LRU
+    LRU_Fila lru_Fila;
+    inicializarFilaLRU(&lru_Fila);
+
+    // Memory Block Declaration NRU
+    int memoryNRU[MEMORY_SIZE];
+    int reference_bitsNRU[MEMORY_SIZE];
+    int modified_bitsNRU[MEMORY_SIZE];
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        memoryNRU[i] = -1;
+        reference_bitsNRU[i] = 0;
+        modified_bitsNRU[i] = 0;
+    }
+
+    // Memory Block Declaration 2nCh
+    circular_queue_pointer = 0;
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        memory2NCH[i] = -1;
+        reference_bits2NCH[i] = 0;
+        modified_bits2NCH[i] = 0;
+    }
+
+    // Memory Block Declaration WS
+    int k = set;
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        physicalMemory[i].pageNum = -1;
+        physicalMemory[i].processId = -1;
+        physicalMemory[i].referenceBit = 0;
+        physicalMemory[i].modifiedBit = 0;
+    }
+    for (int p = 0; p < NUM_PROCESS; p++)
+    {
+        workingSetSize[p] = 0;
+        framesPerProcess[p] = 0;
+        for (int i = 0; i < MAX_WORKING_SET_SIZE; i++)
+        {
+            workingSet[p][i] = -1;
+        }
+    }
+
+    printf("GMV iniciado\n");
+
+    while (1)
+    {
+        sem_wait(sem);
+        if (shared_data->flag == 1)
+        {
+            // Dados disponíveis para ler
+            int pageNum = shared_data->pageNum;
+            int processID = shared_data->processID;
+            char accessType = shared_data->accessType;
+            shared_data->flag = 0; // Buffer está vazio novamente
+            sem_post(sem);
+
+            // Processa os dados
+            if (printFlag)
+            {
+                printf("Processo %d: Página %d, Tipo %c\n", processID + 1, pageNum + 1, accessType);
+            }
+
+            // Chama o algoritmo de substituição de página apropriado
+            switch (algorithm)
+            {
+            case 0:
+                subs_NRU(memoryNRU, reference_bitsNRU, modified_bitsNRU, &pageFaults, pageNum, accessType);
+                if (printFlag)
+                {
+                    imprimiTabelaProcessosNRU(memoryNRU, reference_bitsNRU, modified_bitsNRU);
+                }
+                break;
+            case 1:
+                subs_2nCh(&pageFaults, pageNum, accessType);
+                if (printFlag)
+                {
+                    imprimiTabelaProcessos2nCh(); // Call the function to print the page table
+                }
+                break;
+            case 2:
+                subs_LRU(&lru_Fila, &pageFaults, pageNum, accessType);
+                if (printFlag)
+                {
+                    imprimiTabelaProcessosLRU(&lru_Fila);
+                }
+                break;
+            case 3:
+                subs_WS(set, &pageFaults, processID, pageNum, accessType);
+                if (printFlag)
+                {
+                    imprimiTabelaProcessosWS(); // Call the function to print the page table
+                }
+                break;
+            default:
+                fprintf(stderr, "Código de algoritmo inválido\n");
+                break;
+            }
+        }
+        else if (shared_data->flag == 2)
+        {
+            sem_post(sem);
+            break; // Sinal para terminar
+        }
+        else
+        {
+            sem_post(sem);
+        }
+        usleep(10000); // Pequena espera para evitar loop rápido demais
+    }
+
+    // Limpa recursos
+    sem_close(sem);
+    munmap(shared_data, SHM_SIZE);
+    printf("GMV terminou\n");
+    printf("Número de page faults: %d\n", pageFaults);
 }
