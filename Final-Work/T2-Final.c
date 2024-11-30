@@ -29,6 +29,7 @@ typedef struct
     int flag;
     int pageNum;
     char accessType;
+    int process
 } SharedData;
 
 typedef struct
@@ -134,6 +135,7 @@ int main(int argc, char **argv)
     }
 
     srand(time(NULL) ^ getpid());
+    
     int shm_fd;
     SharedData *shared_data;
     sem_t *sem;
@@ -262,6 +264,7 @@ int main(int argc, char **argv)
                 {
                     shared_data->pageNum = pageNum;
                     shared_data->accessType = accessType;
+                    shared_data->process = i;
                     shared_data->flag = 1; // Dados disponíveis para o filho
                 }
                 sem_post(sem);
@@ -606,6 +609,7 @@ void gmv(int algorithm, int set, int printFlag)
         {
             // Dados disponíveis para ler
             int pageNum = shared_data->pageNum;
+            int process = shared_data->process;
             char accessType = shared_data->accessType;
             shared_data->flag = 0; // Buffer está vazio novamente
             sem_post(sem);
@@ -613,7 +617,7 @@ void gmv(int algorithm, int set, int printFlag)
             // Processa os dados
             if (printFlag)
             {
-                printf("Acesso: Página %d, Tipo %c\n", pageNum + 1, accessType);
+                printf("Processo %d: Página %d, Tipo %c\n", process + 1, pageNum + 1, accessType);
             }
 
             // Chama o algoritmo de substituição de página apropriado
