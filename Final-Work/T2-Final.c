@@ -399,9 +399,9 @@ void adicionarLRU(LRU_Fila *fila, int valor, int *pageFault, int pageModified, i
 {
     if (contemLRU(fila, valor))
     {
-        if (fila->process_bit[indexOfLRU(&fila, valor)] != processNum)
+        if (fila->process_bit[indexOfLRU(fila, valor)] != processNum)
         {
-            printf("Page fault: %d\n", valor + 1);
+            printf("Page fault: Processo Px=%d, Página %d\n", processNum + 1, valor + 1);
             (*pageFault)++;
         }
         // Remove the value if it already exists
@@ -411,18 +411,18 @@ void adicionarLRU(LRU_Fila *fila, int valor, int *pageFault, int pageModified, i
     {
         // Page fault occurs
         (*pageFault)++;
+        printf("Page fault: Processo Px=%d, Página %d\n", processNum + 1, valor + 1);
         // If the queue is full, remove the least recently used page
         if (fila->size == MEMORY_SIZE)
         {
-            printf("Page fault: %d\n", valor + 1);
-            printf("Page to remove: %d\n", fila->memoryLRU[0] + 1);
+            printf("Page to remove: %d (Process Py=%d)\n", fila->memoryLRU[0] + 1, fila->process_bit[0] + 1);
             if (fila->modified_bitsLRU[0] == 1)
             {
-                printf("Dirty page replaced and written back to swap area.\n");
+                printf("Página suja escrita na área de swap.\n");
             }
             else
             {
-                printf("Clean page replaced.\n");
+                printf("Página limpa removida.\n");
             }
 
             // Shift all elements to the left to remove the oldest page
@@ -647,7 +647,7 @@ void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFaul
 
             if (process_Bits[i] != processNum)
             {
-                printf("Page fault: %d\n", pageNum + 1);
+                printf("Page fault: Processo Px=%d, Página %d\n", processNum + 1, pageNum + 1);
                 (*pageFault)++;
                 process_Bits[i] = processNum;
                 pageReferenced[i] = (accessType == 'R') ? 1 : 0;
@@ -661,19 +661,19 @@ void subs_NRU(int *memory, int *pageReferenced, int *pageModified, int *pageFaul
     {
         // Page fault
         (*pageFault)++;
-        printf("Page fault: %d\n", pageNum + 1);
+        printf("Page fault: Processo Px=%d, Página %d\n", processNum + 1, pageNum + 1);
 
         // Select the page to be removed
         int pageToRemove = NRU_whichPageToRemove(memory, pageModified, pageReferenced, pageNum);
 
-        printf("Page to remove: %d\n", memory[pageToRemove] + 1);
+        printf("Page to remove: %d (Process %d)\n", memory[pageToRemove] + 1, process_Bits[pageToRemove] + 1);
         if (memory[pageToRemove] != -1 && pageModified[pageToRemove] == 1)
         {
-            printf("Dirty page replaced and written back to swap area.\n");
+            printf("Página suja escrita na área de swap.\n\n");
         }
         else
         {
-            printf("Clean page replaced.\n");
+            printf("Página limpa removida.\n");
         }
 
         // Replace the page in memory and update bits
@@ -747,7 +747,7 @@ void subs_2nCh(int *pageFault, int pageNum, char accessType, int processNum)
 
             if (process_bits2NCH[i] != processNum)
             {
-                printf("Page fault: %d\n", pageNum + 1);
+                printf("Page fault: Processo Px=%d, Página %d\n", processNum + 1, pageNum + 1);
                 (*pageFault)++;
                 process_bits2NCH[i] = processNum;
             }
@@ -760,7 +760,7 @@ void subs_2nCh(int *pageFault, int pageNum, char accessType, int processNum)
     {
         // Page fault occurs
         (*pageFault)++;
-        printf("Page fault: %d\n", pageNum + 1);
+        printf("Page fault: Processo Px=%d, Página %d\n", processNum + 1, pageNum + 1);
 
         // Try to find a free frame first
         int frame_index = -1;
@@ -796,14 +796,14 @@ void subs_2nCh(int *pageFault, int pageNum, char accessType, int processNum)
                 if (reference_bits2NCH[circular_queue_pointer] == 0)
                 {
                     // Replace the page
-                    printf("Page to remove: %d\n", memory2NCH[circular_queue_pointer] + 1);
+                    printf("Page to remove: %d (Process %d)\n", memory2NCH[circular_queue_pointer] + 1, process_bits2NCH[circular_queue_pointer] + 1);
                     if (modified_bits2NCH[circular_queue_pointer] == 1)
                     {
-                        printf("Dirty page replaced and written back to swap area.\n");
+                        printf("Página suja escrita na área de swap.\n");
                     }
                     else
                     {
-                        printf("Clean page replaced.\n");
+                        printf("Página limpa removida.\n");
                     }
 
                     // Replace the page
@@ -945,7 +945,7 @@ void subs_WS(int set, int *pageFault, int processId, int pageNum, char accessTyp
     {
         // Page not in working set, page fault occurs
         (*pageFault)++;
-        printf("Page fault: %d (Process %d)\n", pageNum + 1, processId + 1);
+        printf("Page fault: Processo Px=%d, Página %d\n", processId + 1, pageNum + 1);
 
         // Add the page to the working set
         // If working set size exceeds 'k', remove the oldest page
@@ -965,14 +965,14 @@ void subs_WS(int set, int *pageFault, int processId, int pageNum, char accessTyp
             {
                 if (physicalMemory[i].pageNum == pageToRemove && physicalMemory[i].processId == processId)
                 {
-                    printf("Page to remove: %d (Process %d)\n", physicalMemory[i].pageNum + 1, processId + 1);
+                    printf("Page to remove: %d (Process Py=%d)\n", physicalMemory[i].pageNum + 1, physicalMemory[i].processId + 1);
                     if (physicalMemory[i].modifiedBit == 1)
                     {
-                        printf("Dirty page replaced and written back to swap area.\n");
+                        printf("Página suja escrita na área de swap.\n");
                     }
                     else
                     {
-                        printf("Clean page replaced.\n");
+                        printf("Página limpa removida.\n");
                     }
                     physicalMemory[i].pageNum = -1;
                     physicalMemory[i].processId = -1;
@@ -1222,6 +1222,10 @@ void gmv(int algorithm, int set, int printFlag)
                 fprintf(stderr, "Código de algoritmo inválido\n");
                 break;
             }
+
+            printf("Número total de page faults: %d\n", pageFaults);
+            printf("-----------------------------------------\n");
+
         }
         else if (shared_data->flag == 2)
         {
