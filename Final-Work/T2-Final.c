@@ -708,21 +708,34 @@ void subs_LRU(LRU_Fila *lru_Fila, int *pageFault, int pageNum, char accessType, 
 /************************************************************************************************/
 /************************************************************************************************/
 /************************************************************************************************/
+// Returns the index of the value in the queue, or -1 if not found
+int indexOf2nCH(int *memory, int valor)
+{
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        if (memory[i] == valor)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
 
 void imprimiTabelaProcessos2nCh()
 {
     printf("Tabela de Processos (Second Chance): \n");
     printf("-------------------------------------\n");
-    printf("| Frame | Page | Ref | Mod | Pro |\n");
-    for (int i = 0; i < MEMORY_SIZE; i++)
+    printf("| Page | Frame | Ref | Mod | Pro |\n");
+    for (int i = 0; i < NUM_PAGES; i++)
     {
-        if (memory2NCH[i] != -1)
+        int index = indexOfNRU(memory2NCH, i);
+        if (index != -1)
         {
-            printf("|   %2d  |  %2d  |  %d  |  %d  |  %d  |\n", i + 1, memory2NCH[i] + 1, reference_bits2NCH[i], modified_bits2NCH[i], process_bits2NCH[i] + 1);
+            printf("|   %2d  |  %2d  |  %d  |  %d  |  %d  |\n", i + 1, memory2NCH[index] + 1, reference_bits2NCH[index], modified_bits2NCH[index], process_bits2NCH[index] + 1);
         }
         else
         {
-            printf("|   %2d  | ----- | --- | --- | --- |\n", i + 1);
+            printf("|   %2d  | ---- | --- | --- | --- |\n", i + 1);
         }
     }
     printf("-------------------------------------\n");
@@ -841,21 +854,34 @@ void subs_2nCh(int *pageFault, int pageNum, char accessType, int processNum)
 /************************************************************************************************/
 /************************************************************************************************/
 /************************************************************************************************/
+// Returns the index of the value in the queue, or -1 if not found
+int indexOfWS(Frame *memory, int valor)
+{
+    for (int i = 0; i < MEMORY_SIZE; i++)
+    {
+        if (memory[i].pageNum == valor)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
 
 void imprimiTabelaProcessosWS()
 {
     printf("Tabela de Processos (Working Set): \n");
     printf("-----------------------------------\n");
-    printf("| Frame | Page | Proc | Ref | Mod |\n");
-    for (int i = 0; i < MEMORY_SIZE; i++)
+    printf("| Page | Frame | Ref | Mod | Pro |\n");
+    for (int i = 0; i < NUM_PAGES; i++)
     {
-        if (physicalMemory[i].pageNum != -1)
+        int index = indexOfWS(physicalMemory, i);
+        if (index != -1)
         {
-            printf("|   %2d  |  %2d  |  %2d  |  %d  |  %d  |\n", i + 1, physicalMemory[i].pageNum + 1, physicalMemory[i].processId + 1, physicalMemory[i].referenceBit, physicalMemory[i].modifiedBit);
+            printf("|   %2d  |  %2d  |  %2d  |  %d  |  %d  |\n", i + 1, physicalMemory[index].pageNum + 1, physicalMemory[index].referenceBit, physicalMemory[index].modifiedBit, physicalMemory[index].processId + 1);
         }
         else
         {
-            printf("|   %2d  | ----- | ---- | --- | --- |\n", i + 1);
+            printf("|   %2d  | ---- | --- | --- | --- |\n", i + 1);
         }
     }
     printf("-----------------------------------\n");
